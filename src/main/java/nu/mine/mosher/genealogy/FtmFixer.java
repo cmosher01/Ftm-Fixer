@@ -15,7 +15,7 @@ import static java.util.Objects.*;
  * following Facts, by this order of preference:
  * </p>
  * <p>
- * 1. _UID (FactType.Abbreviation)
+ * 1. _ID (FactType.Abbreviation)
  * 2. UUID (FactType.Abbreviation)
  * 3. GUID (FactType.Abbreviation)
  * 4. ID (FactType.Abbreviation)
@@ -37,19 +37,19 @@ import static java.util.Objects.*;
  * This results in exactly one OPTIMAL identification UUID for the given Person.
  * </p>
  * <p>
- * If there is exactly one _UID record marked as Preferred, and it already has the OPTIMAL
+ * If there is exactly one _ID record marked as Preferred, and it already has the OPTIMAL
  * identification as its value, then no update is necessary, so do nothing.
  * </p>
  * <p>
- * Otherwise, update any existing _UID records to mark them as NOT Preferred; then
- * insert one new _UID record, marked Preferred, with the OPTIMAL identification value
+ * Otherwise, update any existing _ID records to mark them as NOT Preferred; then
+ * insert one new _ID record, marked Preferred, with the OPTIMAL identification value
  * (as a string in standard UUID format).
  * </p>
  * <p>
  * The end result is intended to be as follows:
  * 1. Leave any existing UUID, GUID, ID, REFN, or PersonGUID values completely untouched.
- * 2. Do not remove any existing _UID values.
- * 3. There will be exactly one _UID value marked as Preferred, and
+ * 2. Do not remove any existing _ID values.
+ * 3. There will be exactly one _ID value marked as Preferred, and
  * 4. it will have as its value the preferred UUID (OPTIMAL identification for the Person)
  * </p>
  * <p>
