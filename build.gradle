@@ -1,0 +1,25 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation group: 'org.xerial', name: 'sqlite-jdbc', version: 'latest.release'
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: 'latest.integration'
+    runtimeOnly group: 'org.slf4j', name: 'slf4j-simple', version: 'latest.integration'
+}
+
+this.group = 'nu.mine.mosher.genealogy'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+}
+
+application {
+    getMainClass().set 'nu.mine.mosher.genealogy.FtmFixer'
+}
+
+this.version="1.0.0"
