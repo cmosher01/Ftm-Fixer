@@ -71,17 +71,27 @@ public class FtmFixer {
 
     public static void main(final String... args) throws SQLException {
         if (args.length < 1) {
-            LOG.error("Missing required argument: <tree>.ftm");
+            LOG.error("Missing required argument: <tree>.ftm [...]");
             System.exit(1);
         }
 
-        final var path = Paths.get(args[0]);
-        LOG.debug("opening FTM tree file: {}", path);
-        final var ftmFixer = new FtmFixer(DriverManager.getConnection("jdbc:sqlite:" + path));
-
-        ftmFixer.reportPersons();
+        for (final String arg : args) {
+            fixDatabase(arg);
+        }
 
         LOG.debug("Program completed normally.");
+    }
+
+    private static void fixDatabase(final String arg) {
+        try {
+            final var path = Paths.get(arg);
+            LOG.debug("opening FTM tree file: {}", path);
+            final var ftmFixer = new FtmFixer(DriverManager.getConnection("jdbc:sqlite:" + path));
+
+            ftmFixer.reportPersons();
+        } catch (final Exception e) {
+            LOG.error("Error processing {}", arg, e);
+        }
     }
 
     private void reportPersons() throws SQLException {
