@@ -3,6 +3,7 @@ package nu.mine.mosher.genealogy;
 import java.util.*;
 
 public class FtmFixerOptions {
+    public boolean shouldRun = true;
     public boolean force;
     public boolean verbose;
     public List<String> files = new ArrayList<>();
@@ -17,6 +18,13 @@ public class FtmFixerOptions {
         System.out.println("    --force   Updates the database (otherwise only prints");
         System.out.println("              a log of what would be changed.");
         System.out.println("    --verbose Prints verbose log messages.");
+        System.out.println("    --version Prints version and exists.");
+        this.shouldRun = false;
+    }
+
+    public void version(final Optional<String> bool) {
+        System.out.println(this.getClass().getPackage().getImplementationVersion());
+        this.shouldRun = false;
     }
 
     public void force(final Optional<String> bool) {

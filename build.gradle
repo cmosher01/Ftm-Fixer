@@ -1,5 +1,14 @@
 plugins {
     id 'application'
+    id 'com.coditory.manifest' version '0.1.14'
+}
+
+this.version = '1.0.2'
+
+this.group = 'nu.mine.mosher.genealogy'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
 }
 
 repositories {
@@ -13,14 +22,16 @@ dependencies {
     implementation group: 'ch.qos.logback', name: 'logback-classic', version: 'latest.release'
 }
 
-this.group = 'nu.mine.mosher.genealogy'
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-}
-
 application {
     getMainClass().set 'nu.mine.mosher.genealogy.FtmFixer'
 }
 
-this.version="1.0.1"
+jar {
+    //noinspection GroovyAssignabilityCheck
+    manifest {
+        attributes(
+            'Specification-Version': manifest.attributes.get('Implementation-Version').toString(),
+            'Implementation-Version': manifest.attributes.get('Implementation-Version').toString()+"+"+manifest.attributes.get('SCM-Commit-Hash').toString()
+        )
+    }
+}

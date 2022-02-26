@@ -67,6 +67,7 @@ public class FtmFixer {
     private static FtmFixerOptions options;
 
     private final Connection db;
+    private final Map<UUID, Long> uuids = new HashMap<>(8192);
 
     private FtmFixer(final Connection db) {
         this.db = db;
@@ -83,13 +84,18 @@ public class FtmFixer {
             LOG_ROOT.setLevel(Level.INFO);
         }
 
-        if (options.files.size() < 1) {
-            LOG.error("Missing required argument: <tree>.ftm [...]");
-            System.exit(1);
-        }
-
-        for (final String file : options.files) {
-            fixDatabase(file);
+        if (options.shouldRun) {
+            if (options.files.isEmpty()) {
+                LOG.error("Missing required argument: <tree>.ftm [...]");
+                System.exit(1);
+            }
+            for (final String file : options.files) {
+                fixDatabase(file);
+            }
+        } else {
+            if (!options.files.isEmpty()) {
+                LOG.warn("Ignored arguments: {}", options.files);
+            }
         }
 
         LOG.debug("Program completed normally.");
@@ -215,21 +221,38 @@ public class FtmFixer {
                     final var msg = String.format("    %7d %4s %4s %c %-40s %c %5d", idFact, tag, abbreviation, preferred ? '*' : ' ', text, optUuid.isPresent() ? '*' : ' ', syncVersion);
                     LOG.debug(msg);
 
-                    if (optUuid.isPresent() && optimal.isEmpty()) {
-                        optimal = optUuid;
+                    if (optUuid.isPresent()) {
+                        checkDuplicateUuid(optUuid.get(), idPerson);
+
+                        if (optimal.isEmpty()) {
+                            optimal = optUuid;
+                        }
                     }
                 }
             }
         }
 
         if (optimal.isEmpty()) {
-            optimal = Optional.of(UUID.randomUUID());
+            final var uuid = UUID.randomUUID();
+            checkDuplicateUuid(uuid, idPerson);
+            optimal = Optional.of(uuid);
             LOG.warn("    Could not find any valid UUID, so one was generated: {}", optimal.get());
         }
 
         LOG.debug("    OPTIMAL UUID: ----> {} <----------------", optimal.get());
 
         return optimal.get();
+    }
+
+    private void checkDuplicateUuid(final UUID uuid, final long idPerson) {
+        if (this.uuids.containsKey(uuid)) {
+            final long idPersonExisting = this.uuids.get(uuid);
+            if (idPersonExisting != idPerson) {
+                LOG.error("DUPLICATE UUID DETECTED: {} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", uuid);
+            }
+        } else {
+            this.uuids.put(uuid, idPerson);
+        }
     }
 
     private boolean isExactlyOnePreferred_ID(final long idPerson, final String name) throws SQLException {
