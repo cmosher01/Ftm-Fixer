@@ -1,6 +1,9 @@
 package nu.mine.mosher.genealogy;
 
+import ch.qos.logback.classic.*;
+import nu.mine.mosher.gnopt.Gnopt;
 import org.slf4j.*;
+import org.slf4j.Logger;
 
 import java.nio.file.Paths;
 import java.sql.*;
@@ -60,23 +63,33 @@ import static java.util.Objects.*;
  * </p>
  */
 public class FtmFixer {
-    private static final Logger LOG = LoggerFactory.getLogger(FtmFixer.class);
+    private static final Logger LOG = LoggerFactory.getLogger(FtmFixer.class);;
+    private static FtmFixerOptions options;
 
     private final Connection db;
-    private final boolean dryRun = false;
 
     private FtmFixer(final Connection db) {
         this.db = db;
     }
 
-    public static void main(final String... args) throws SQLException {
-        if (args.length < 1) {
+    public static void main(final String... args) throws Gnopt.InvalidOption {
+        options = Gnopt.process(FtmFixerOptions.class, args);
+
+        final LoggerContext ctx = (LoggerContext)LoggerFactory.getILoggerFactory();
+        final ch.qos.logback.classic.Logger LOG_ROOT = ctx.getLogger(ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME);
+        if (options.verbose) {
+            LOG_ROOT.setLevel(Level.TRACE);
+        } else {
+            LOG_ROOT.setLevel(Level.INFO);
+        }
+
+        if (options.files.size() < 1) {
             LOG.error("Missing required argument: <tree>.ftm [...]");
             System.exit(1);
         }
 
-        for (final String arg : args) {
-            fixDatabase(arg);
+        for (final String file : options.files) {
+            fixDatabase(file);
         }
 
         LOG.debug("Program completed normally.");
@@ -85,7 +98,8 @@ public class FtmFixer {
     private static void fixDatabase(final String arg) {
         try {
             final var path = Paths.get(arg);
-            LOG.debug("opening FTM tree file: {}", path);
+            LOG.info("{}", new String(new char[70]).replace("\0", "*"));
+            LOG.info("opening FTM tree file: {}", path);
             final var ftmFixer = new FtmFixer(DriverManager.getConnection("jdbc:sqlite:" + path));
 
             ftmFixer.reportPersons();
@@ -97,7 +111,7 @@ public class FtmFixer {
     private void reportPersons() throws SQLException {
         final var syncVersion = readSyncVersion();
 
-        if (findFactType_ID() == 0L && !dryRun) {
+        if (findFactType_ID() == 0L && options.force) {
             createFactType(syncVersion);
             if (findFactType_ID() == 0L) {
                 LOG.error("Could not create FactType _ID record.");
@@ -111,14 +125,17 @@ public class FtmFixer {
             while (rs.next()) {
                 final var idPerson = rs.getLong("ID");
                 final var name = requireNonNullElse(rs.getString("FullName"), "");
-                LOG.info("Person: ID={}, FullName={}", idPerson, name);
+                LOG.debug("Person: ID={}, FullName={}", idPerson, name);
 
                 final var optimal = findOptimalUuid(idPerson);
 
                 // if C != 1 then DO_UPDATE, else
                 // if Text exactly equals OPTIMAL, then do nothing, else DO_UPDATE
-                if (!isExactlyOnePreferred_ID(idPerson) || !isMatching_ID(idPerson, optimal)) {
+                if (!isExactlyOnePreferred_ID(idPerson, name) || !isMatching_ID(idPerson, optimal)) {
                     doUpdate(idPerson, idFactType, optimal, syncVersion);
+                    if (options.force) {
+                        findOptimalUuid(idPerson); // re-log IDs
+                    }
                 }
             }
         }
@@ -185,7 +202,7 @@ public class FtmFixer {
             q.setLong(2, idPerson);
             try (final var rs = q.executeQuery()) {
                 final var header = String.format("    %7s %4s %4s %1s %-40s %1s %5s", "Fact ID", "Tag", "Abrv", "P", "Text", "U", "SyncVersion");
-                LOG.info(header);
+                LOG.debug(header);
                 while (rs.next()) {
                     final var idFact = rs.getLong("ID");
                     final var tag = requireNonNullElse(rs.getString("Tag"), "");
@@ -196,7 +213,7 @@ public class FtmFixer {
                     final var optUuid = asUuid(text);
 
                     final var msg = String.format("    %7d %4s %4s %c %-40s %c %5d", idFact, tag, abbreviation, preferred ? '*' : ' ', text, optUuid.isPresent() ? '*' : ' ', syncVersion);
-                    LOG.info(msg);
+                    LOG.debug(msg);
 
                     if (optUuid.isPresent() && optimal.isEmpty()) {
                         optimal = optUuid;
@@ -210,12 +227,12 @@ public class FtmFixer {
             LOG.warn("    Could not find any valid UUID, so one was generated: {}", optimal.get());
         }
 
-        LOG.info("    OPTIMAL UUID: ----> {} <----------------", optimal.get());
+        LOG.debug("    OPTIMAL UUID: ----> {} <----------------", optimal.get());
 
         return optimal.get();
     }
 
-    private boolean isExactlyOnePreferred_ID(final long idPerson) throws SQLException {
+    private boolean isExactlyOnePreferred_ID(final long idPerson, final String name) throws SQLException {
         final var sql = """
             SELECT
                 COUNT(*) AS C
@@ -234,10 +251,11 @@ public class FtmFixer {
                 if (rs.next()) {
                     final var c = rs.getInt("C");
                     if (c == 1) {
-                        LOG.info("    count of existing Preferred _ID Facts: {}", c);
+                        LOG.debug("    count of existing Preferred _ID Facts: {}", c);
                     }
                     else {
-                        LOG.warn("    count of existing Preferred _ID Facts: {} <=======================", c);
+                        LOG.info("Person: ID={}, FullName={}", idPerson, name);
+                        LOG.info("    count of existing Preferred _ID Facts: {} <=======================", c);
                     }
                     return c == 1;
                 }
@@ -267,7 +285,7 @@ public class FtmFixer {
                     final var uuidExisting = asUuid(text);
                     final var isOK = uuidExisting.isPresent() && uuidExisting.get().equals(uuidOptimal);
                     if (isOK) {
-                        LOG.info("    existing Preferred _ID Fact is up-to-date; no action required.");
+                        LOG.debug("    existing Preferred _ID Fact is up-to-date; no action required.");
                     }
                     else {
                         LOG.warn("    incorrect value on existing Preferred _ID Fact: \"{}\" <=======================", text);
@@ -292,7 +310,7 @@ public class FtmFixer {
             try (final var rs = q.executeQuery()) {
                 if (rs.next()) {
                     final var syncVersion = rs.getInt("SyncVersion");
-                    LOG.info("Current SyncVersion of FTM tree: {}", syncVersion);
+                    LOG.debug("Current SyncVersion of FTM tree: {}", syncVersion);
                     return syncVersion;
                 }
             }
@@ -318,7 +336,7 @@ public class FtmFixer {
                     final var abbreviation = requireNonNullElse(rs.getString("Abbreviation"), "");
                     final var tag = requireNonNullElse(rs.getString("Tag"), "");
                     final var syncVersion = rs.getInt("SyncVersion");
-                    LOG.info("existing FactType: ID={}, Name=\"{}\", ShortName=\"{}\", Abbreviation=\"{}\", Tag=\"{}\", SyncVersion={}", id, name, shortName, abbreviation, tag, syncVersion);
+                    LOG.debug("existing FactType: ID={}, Name=\"{}\", ShortName=\"{}\", Abbreviation=\"{}\", Tag=\"{}\", SyncVersion={}", id, name, shortName, abbreviation, tag, syncVersion);
 
                     return id;
                 }
@@ -392,9 +410,9 @@ public class FtmFixer {
                 LinkTableID = 5 AND
                 FactTypeID = ?
             """;
-        LOG.info(sql.replaceAll("(?U)\\s+", " ").replaceAll("\\?", "{}"), syncVersion, idPerson, idFactType);
-        if (dryRun) {
-            LOG.info("DRY RUN; no data changed. Use -f to force an update.");
+        LOG.info("    "+sql.replaceAll("(?U)\\s+", " ").replaceAll("\\?", "{}"), syncVersion, idPerson, idFactType);
+        if (!options.force) {
+            LOG.warn("    THIS WAS A TEST; NO DATA HAS BEEN CHANGED! Use --force to force an update.");
         }
         else {
             try (final PreparedStatement insert = db.prepareStatement(sql)) {
@@ -402,16 +420,16 @@ public class FtmFixer {
                 insert.setLong(2, idPerson);
                 insert.setLong(3, idFactType);
                 final var cUpdate = insert.executeUpdate();
-                LOG.info("Updated row count: {}", cUpdate);
+                LOG.info("    Updated row count: {}", cUpdate);
             }
         }
     }
 
     private void insertOptimalUuid(long idPerson, long idFactType, UUID optimal, int syncVersion) throws SQLException {
         final String sql = "INSERT INTO Fact(LinkID, LinkTableID, FactTypeID, Preferred, Text, SyncVersion) VALUES (?,5,?,1,?,?)";
-        LOG.info(sql.replaceAll("(?U)\\s+", " ").replaceAll("\\?", "{}"), idPerson, idFactType, optimal.toString(), syncVersion);
-        if (dryRun) {
-            LOG.info("DRY RUN; no data changed. Use -f to force an update.");
+        LOG.info("    "+sql.replaceAll("(?U)\\s+", " ").replaceAll("\\?", "{}"), idPerson, idFactType, optimal.toString(), syncVersion);
+        if (!options.force) {
+            LOG.warn("    THIS WAS A TEST; NO DATA HAS BEEN CHANGED! Use --force to force an update.");
         }
         else {
             try (final PreparedStatement insert = db.prepareStatement(sql)) {
@@ -433,16 +451,16 @@ public class FtmFixer {
 
     private void updateSyncVersion(long idPerson, int syncVersion) throws SQLException {
         final String sql = "UPDATE Person SET SyncVersion = ? WHERE ID = ?";
-        LOG.info(sql.replaceAll("(?U)\\s+", " ").replaceAll("\\?", "{}"), syncVersion, idPerson);
-        if (dryRun) {
-            LOG.info("DRY RUN; no data changed. Use -f to force an update.");
+        LOG.info("    "+sql.replaceAll("(?U)\\s+", " ").replaceAll("\\?", "{}"), syncVersion, idPerson);
+        if (!options.force) {
+            LOG.warn("    THIS WAS A TEST; NO DATA HAS BEEN CHANGED! Use --force to force an update.");
         }
         else {
             try (final PreparedStatement insert = db.prepareStatement(sql)) {
                 insert.setLong(1, syncVersion);
                 insert.setLong(2, idPerson);
                 final var cUpdate = insert.executeUpdate();
-                LOG.info("Updated row count: {}", cUpdate);
+                LOG.info("    Updated row count: {}", cUpdate);
             }
         }
     }

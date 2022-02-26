@@ -8,8 +8,9 @@ repositories {
 
 dependencies {
     implementation group: 'org.xerial', name: 'sqlite-jdbc', version: 'latest.release'
+    implementation group: 'nu.mine.mosher.gnopt', name: 'Gnopt', version: 'latest.release'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: 'latest.integration'
-    runtimeOnly group: 'org.slf4j', name: 'slf4j-simple', version: 'latest.integration'
+    implementation group: 'ch.qos.logback', name: 'logback-classic', version: 'latest.release'
 }
 
 this.group = 'nu.mine.mosher.genealogy'
@@ -22,4 +23,4 @@ application {
     getMainClass().set 'nu.mine.mosher.genealogy.FtmFixer'
 }
 
-this.version="1.0.0"
+this.version="1.0.1"
