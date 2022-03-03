@@ -2,6 +2,7 @@ package nu.mine.mosher.genealogy;
 
 import java.util.*;
 
+@SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "unused"})
 public class FtmFixerOptions {
     public boolean shouldRun = true;
     public boolean force;
@@ -10,7 +11,7 @@ public class FtmFixerOptions {
 
 
 
-    public void help(final Optional<String> bool) {
+    public void help(final Optional<String> ignored) {
         System.out.println("Usage:");
         System.out.println("    ftm-fixer [OPTIONS] <tree>.ftm [...]");
         System.out.println("Options:");
@@ -22,7 +23,7 @@ public class FtmFixerOptions {
         this.shouldRun = false;
     }
 
-    public void version(final Optional<String> bool) {
+    public void version(final Optional<String> ignored) {
         System.out.println(this.getClass().getPackage().getImplementationVersion());
         this.shouldRun = false;
     }
@@ -46,12 +47,12 @@ public class FtmFixerOptions {
 
 
     public void __(final Optional<String> file) {
-        this.files.add(file.get());
+        file.ifPresent(f -> this.files.add(f));
     }
 
 
 
-    private static boolean parseBool(Optional<String> bool) {
+    private static boolean parseBool(final Optional<String> bool) {
         boolean v = true;
         if (bool.isPresent()) {
             v = Boolean.parseBoolean(bool.get());

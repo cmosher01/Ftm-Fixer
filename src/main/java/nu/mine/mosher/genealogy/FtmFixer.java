@@ -4,7 +4,10 @@ import ch.qos.logback.classic.*;
 import nu.mine.mosher.gnopt.Gnopt;
 import org.slf4j.*;
 import org.slf4j.Logger;
+import org.xml.sax.*;
 
+import javax.xml.parsers.*;
+import java.io.*;
 import java.nio.file.Paths;
 import java.sql.*;
 import java.util.*;
@@ -108,13 +111,65 @@ public class FtmFixer {
             LOG.info("opening FTM tree file: {}", path);
             final var ftmFixer = new FtmFixer(DriverManager.getConnection("jdbc:sqlite:" + path));
 
-            ftmFixer.reportPersons();
+            ftmFixer.fixOptimalUuid();
+            ftmFixer.verifyXml();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
     }
 
-    private void reportPersons() throws SQLException {
+    private void verifyXml() throws SQLException {
+        final var sql = """
+            SELECT
+                Source.PageNumber, MasterSource.Title, Person.FullName
+            FROM
+                Fact INNER JOIN
+                SourceLink ON (SourceLink.LinkID = Fact.ID AND SourceLink.LinkTableID = 2) INNER JOIN
+                Source ON (Source.ID = SourceLink.SourceID) INNER JOIN
+                MasterSource ON (MasterSource.ID = Source.MasterSourceID) INNER JOIN
+                Person ON (Person.ID = Fact.LinkID AND Fact.LinkTableID = 5)
+            WHERE
+                PageNumber IS NOT NULL AND
+                SUBSTR(PageNumber,1,1) = '<'
+            GROUP BY
+                Source.ID
+            """;
+        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
+            while (rs.next()) {
+                final var citation = rs.getString("PageNumber");
+                final var title = requireNonNullElse(rs.getString("Title"), "");
+                final var person = requireNonNullElse(rs.getString("FullName"), "");
+                if (!validCitation(citation)) {
+                    LOG.warn("INVALID XML found for citation starting with '<':");
+                    LOG.warn("TITLE: {}", title);
+                    LOG.warn("PERSON: {}", person);
+                }
+            }
+        }
+    }
+
+    private boolean validCitation(final String citation) {
+        boolean valid = false;
+        try {
+            final var factory = DocumentBuilderFactory.newInstance();
+            final var builder = factory.newDocumentBuilder();
+            final var dom = builder.parse(new InputSource(new BufferedReader(new StringReader(citation))));
+            final var rBibl = dom.getElementsByTagName("bibl");
+            for (int i = 0; i < rBibl.getLength(); ++i) {
+                final var bibl = rBibl.item(i);
+                final var firstChar = bibl.getTextContent().substring(0,1);
+                if (firstChar.isBlank()) {
+                    LOG.warn("bibl element starts with whitespace");
+                    return false;
+                }
+            }
+            valid = true;
+        } catch (final Exception ignore) {
+        }
+        return valid;
+    }
+
+    private void fixOptimalUuid() throws SQLException {
         final var syncVersion = readSyncVersion();
 
         if (findFactType_ID() == 0L && options.force) {
