@@ -113,8 +113,42 @@ public class FtmFixer {
 
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
+            ftmFixer.verifyDanglingRelationships();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
+        }
+    }
+
+    // finds relationships having no parents and one or zero children
+    // TODO find relationships with one parent and no children
+    private void verifyDanglingRelationships() throws SQLException {
+        final var sql = """
+            SELECT
+                C.PersonID AS person_id,
+                C.RelationshipID AS rel_id,
+                COUNT(*) AS c_children
+            FROM
+                ChildRelationship C
+            WHERE
+                C.RelationshipID IN (
+                    SELECT
+                        R.ID
+                    FROM
+                        Relationship R
+                    WHERE
+                        R.Person1ID IS NULL AND
+                        R.Person2ID IS NULL
+                )
+            GROUP BY
+                C.RelationshipID
+            HAVING
+                c_children <= 1
+            """;
+        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
+            while (rs.next()) {
+                final var person = rs.getLong("person_id");
+                LOG.warn("DANGLING RELATIONSHIP related to person ID: {}", person);
+            }
         }
     }
 
