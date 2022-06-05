@@ -3,7 +3,7 @@ plugins {
     id 'com.coditory.manifest' version '0.1.14'
 }
 
-this.version = '1.0.4'
+this.version = '1.0.5'
 
 this.group = 'nu.mine.mosher.genealogy'
 
@@ -23,11 +23,10 @@ dependencies {
 }
 
 application {
-    getMainClass().set 'nu.mine.mosher.genealogy.FtmFixer'
+    mainClass = 'nu.mine.mosher.genealogy.FtmFixer'
 }
 
 jar {
-    //noinspection GroovyAssignabilityCheck
     manifest {
         attributes(
             'Specification-Version': manifest.attributes.get('Implementation-Version').toString(),

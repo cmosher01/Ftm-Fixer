@@ -111,21 +111,141 @@ public class FtmFixer {
             LOG.info("opening FTM tree file: {}", path);
             final var ftmFixer = new FtmFixer(DriverManager.getConnection("jdbc:sqlite:" + path));
 
+            ftmFixer.verifySyncVersions();
+
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
-            ftmFixer.verifyDanglingRelationships();
+            ftmFixer.findEmptyRelationships();
+            ftmFixer.findOrphans();
+            ftmFixer.findChildlessSingleParents();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
     }
 
-    // finds relationships having no parents and one or zero children
-    // TODO find relationships with one parent and no children
-    private void verifyDanglingRelationships() throws SQLException {
+    private void verifySyncVersions() throws SQLException {
+        final var syncVersion = readSyncVersion();
+
+        List.of(
+            "ChildRelationship",
+            "Deleted",
+            "Fact",
+            "FactType",
+            "MasterSource",
+            "MediaFile",
+            "MediaLink",
+            "Note",
+            "Person",
+            "Place",
+            "Publication",
+            "Relationship",
+            "Repository",
+            "Source",
+            "SourceLink",
+            "Tag",
+            "TagLink",
+            "Task",
+            "WebLink",
+            "PersonExternal",
+            "Watermark"
+        ).forEach(s -> verifySyncVersionTable(syncVersion, s));
+    }
+
+    private void verifySyncVersionTable(int syncVersion, String table) {
+        final var sql = "SELECT COUNT(*) FROM "+table+" WHERE SyncVersion > ?";
+        try (final var q = this.db.prepareStatement(sql)) {
+             q.setInt(1, syncVersion);
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var c = rs.getInt(1);
+                    if (c > 0) {
+                        LOG.warn("Invalid SyncVersion rows found: {}: {}", table, c);
+                        if (options.force) {
+                            fixSyncVersionInTable(syncVersion, table);
+                        }
+                    }
+                }
+            }
+        } catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void fixSyncVersionInTable(int syncVersion, String table) throws SQLException {
+        final var sql = "UPDATE "+table+" SET SyncVersion = ? WHERE SyncVersion > ?";
+        try (final var update = this.db.prepareStatement(sql)) {
+            update.setInt(1, syncVersion);
+            update.setInt(2, syncVersion);
+            final var cUpdate = update.executeUpdate();
+            LOG.info("    Updated row count: {}", cUpdate);
+        }
+    }
+
+    private void findEmptyRelationships() throws SQLException {
+        final var sql = """
+            SELECT
+                ID AS rel_id
+            FROM
+                Relationship
+            WHERE
+                ID NOT IN (
+                    SELECT
+                        RelationshipID
+                    FROM
+                        ChildRelationship
+                    GROUP BY
+                        RelationshipID
+                ) AND
+                Person1ID IS NULL AND
+                Person2ID IS NULL
+            """;
+        boolean found = false;
+        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
+            while (rs.next()) {
+                found = true;
+                final var rel = rs.getLong("rel_id");
+                LOG.warn("EMPTY RELATIONSHIP (no parents, no children) ID: {}", rel);
+            }
+        }
+//        if (found) {
+//            if (!options.force) {
+//                LOG.warn("    THIS WAS A TEST; NO DATA HAS BEEN CHANGED! Use --force to force an update.");
+//            }else {
+//                fixEmptyRelationships();
+//            }
+//        }
+    }
+
+// TODO Relationships could have dependent Facts, Media, etc., etc., so don't
+// implement automatic deleting until we implement finding and displaying all related rows
+
+//    private void fixEmptyRelationships() throws SQLException {
+//        final var sql = """
+//            DELETE
+//                Relationship
+//            WHERE
+//                ID NOT IN (
+//                    SELECT
+//                        RelationshipID
+//                    FROM
+//                        ChildRelationship
+//                    GROUP BY
+//                        RelationshipID
+//                ) AND
+//                Person1ID IS NULL AND
+//                Person2ID IS NULL
+//            """;
+//        try (final var delete = this.db.prepareStatement(sql)) {
+//            final var cUpdate = delete.executeUpdate();
+//            LOG.info("    Updated row count: {}", cUpdate);
+//        }
+//    }
+
+    // Finds people as only child in relationships having no parents
+    private void findOrphans() throws SQLException {
         final var sql = """
             SELECT
                 C.PersonID AS person_id,
-                C.RelationshipID AS rel_id,
                 COUNT(*) AS c_children
             FROM
                 ChildRelationship C
@@ -142,12 +262,45 @@ public class FtmFixer {
             GROUP BY
                 C.RelationshipID
             HAVING
-                c_children <= 1
+                c_children = 1
             """;
         try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
             while (rs.next()) {
                 final var person = rs.getLong("person_id");
-                LOG.warn("DANGLING RELATIONSHIP related to person ID: {}", person);
+                LOG.warn("DANGLING RELATIONSHIP (no parents, one child) related to person ID: {}", person);
+            }
+        }
+    }
+
+    // Finds people as single parent in relationships having no children
+    private void findChildlessSingleParents() throws SQLException {
+        final var sql = """
+            SELECT
+                COALESCE(Person1ID, Person2ID) AS person_id
+            FROM
+                Relationship
+            WHERE
+                (
+                    ID NOT IN (
+                        SELECT
+                            RelationshipID
+                        FROM
+                            ChildRelationship
+                        GROUP BY
+                            RelationshipID
+                    )
+                ) AND (
+                    Person1ID IS NULL OR
+                    Person2ID IS NULL
+                ) AND (
+                    Person1ID IS NOT NULL OR
+                    Person2ID IS NOT NULL
+                )
+            """;
+        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
+            while (rs.next()) {
+                final var person = rs.getLong("person_id");
+                LOG.warn("DANGLING RELATIONSHIP (one parent, no children) related to person ID: {}", person);
             }
         }
     }
@@ -174,9 +327,9 @@ public class FtmFixer {
                 final var title = requireNonNullElse(rs.getString("Title"), "");
                 final var person = requireNonNullElse(rs.getString("FullName"), "");
                 if (!validCitation(citation)) {
-                    LOG.warn("INVALID XML found for citation starting with '<':");
-                    LOG.warn("TITLE: {}", title);
-                    LOG.warn("PERSON: {}", person);
+                    LOG.warn("    INVALID XML found for citation starting with '<':");
+                    LOG.warn("    TITLE: {}", title);
+                    LOG.warn("    PERSON: {}", person);
                 }
             }
         }
@@ -497,7 +650,9 @@ public class FtmFixer {
             }
         }
 
-        try (final PreparedStatement insert = db.prepareStatement("INSERT INTO FactType(Name, ShortName, Abbreviation, FactClass, Tag, SyncVersion) " + "VALUES('_ID','_ID','_ID',33025,'EVEN',?)")) {
+        try (final PreparedStatement insert = db.prepareStatement(
+            "INSERT INTO FactType(Name, ShortName, Abbreviation, FactClass, Tag, SyncVersion) " +
+                "VALUES('_ID','_ID','_ID',33025,'EVEN',?)")) {
             insert.setLong(1, syncVersion);
             insert.executeUpdate();
         }
