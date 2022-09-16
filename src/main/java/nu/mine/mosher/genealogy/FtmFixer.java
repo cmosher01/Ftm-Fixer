@@ -66,7 +66,7 @@ import static java.util.Objects.*;
  * </p>
  */
 public class FtmFixer {
-    private static final Logger LOG = LoggerFactory.getLogger(FtmFixer.class);;
+    private static final Logger LOG = LoggerFactory.getLogger(FtmFixer.class);
     private static FtmFixerOptions options;
 
     private final Connection db;
@@ -199,10 +199,10 @@ public class FtmFixer {
                 Person1ID IS NULL AND
                 Person2ID IS NULL
             """;
-        boolean found = false;
+//        boolean found = false;
         try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
             while (rs.next()) {
-                found = true;
+//                found = true;
                 final var rel = rs.getLong("rel_id");
                 LOG.warn("EMPTY RELATIONSHIP (no parents, no children) ID: {}", rel);
             }
