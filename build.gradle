@@ -1,9 +1,9 @@
 plugins {
     id 'application'
-    id 'com.coditory.manifest' version '0.1.14'
+    id 'com.coditory.manifest' version '0.2.1'
 }
 
-this.version = '1.0.5'
+this.version = '1.0.6'
 
 this.group = 'nu.mine.mosher.genealogy'
 
@@ -13,11 +13,14 @@ java {
 
 repositories {
     mavenCentral()
+    maven {
+        url = uri('https://public:\u0067hp_fya6Kseu3XOBMg2icbg7f1LP6ZFYjj35v4Zj@maven.pkg.github.com/cmosher01/*')
+    }
 }
 
 dependencies {
     implementation group: 'org.xerial', name: 'sqlite-jdbc', version: 'latest.release'
-    implementation group: 'nu.mine.mosher.gnopt', name: 'Gnopt', version: 'latest.release'
+    implementation group: 'nu.mine.mosher.gnopt', name: 'gnopt', version: 'latest.release'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: 'latest.integration'
     implementation group: 'ch.qos.logback', name: 'logback-classic', version: 'latest.release'
 }
