@@ -3,12 +3,15 @@ plugins {
     id 'com.coditory.manifest' version '0.2.1'
 }
 
-this.version = '1.0.6'
+this.version = '1.0.7'
 
 this.group = 'nu.mine.mosher.genealogy'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
+    toolchain {
+        languageVersion = JavaLanguageVersion.of 21
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
 }
 
 repositories {
@@ -19,10 +22,10 @@ repositories {
 }
 
 dependencies {
-    implementation group: 'org.xerial', name: 'sqlite-jdbc', version: 'latest.release'
-    implementation group: 'nu.mine.mosher.gnopt', name: 'gnopt', version: 'latest.release'
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: 'latest.integration'
-    implementation group: 'ch.qos.logback', name: 'logback-classic', version: 'latest.release'
+    implementation 'org.xerial:sqlite-jdbc:latest.release'
+    implementation 'nu.mine.mosher.gnopt:gnopt:latest.release'
+    implementation 'org.slf4j:slf4j-api:latest.integration'
+    implementation 'ch.qos.logback:logback-classic:latest.release'
 }
 
 application {

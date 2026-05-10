@@ -2,17 +2,17 @@ package nu.mine.mosher.genealogy;
 
 import ch.qos.logback.classic.*;
 import nu.mine.mosher.gnopt.Gnopt;
-import org.slf4j.*;
 import org.slf4j.Logger;
-import org.xml.sax.*;
+import org.slf4j.*;
+import org.xml.sax.InputSource;
 
-import javax.xml.parsers.*;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.*;
 import java.nio.file.Paths;
 import java.sql.*;
 import java.util.*;
 
-import static java.util.Objects.*;
+import static java.util.Objects.requireNonNullElse;
 
 /**
  * Updates any necessary Person identification value.
@@ -115,9 +115,7 @@ public class FtmFixer {
 
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
-            ftmFixer.findEmptyRelationships();
-            ftmFixer.findOrphans();
-            ftmFixer.findChildlessSingleParents();
+            ftmFixer.findAnomalousRelationships();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
@@ -181,129 +179,244 @@ public class FtmFixer {
         }
     }
 
-    private void findEmptyRelationships() throws SQLException {
-        final var sql = """
-            SELECT
-                ID AS rel_id
-            FROM
-                Relationship
+    /*
+     * Analyze families ("Relationship" and "ChildRelationship" tables").
+     *
+     * Relationship holds two parents (PersonID1, PersonID2)
+     * ChildRelationship links a child (PersonID) to the parents (RelationshipID)
+     *
+     * Nominal family cases:
+     *      two parents (with or without children)
+     *      one parent with at least one child.
+     *
+     * Strange cases (to report on):
+     *      no parents and no children: "NoPeople"
+     *      no parents and at least one child: "OnlyChildren"
+     *      one parent with no children: "OnlyOneParent"
+     *      people that are "child in" more than one family "MultipleFamilies"
+     *
+     * For each strange case, log it, along with related rows from Fact and Note tables.
+     *
+     */
+
+
+    private void findAnomalousRelationships() throws SQLException {
+        // "Rel" means "Relationship"
+        final var relsNoPeople = selectIds("""
+            SELECT id FROM Relationship
             WHERE
                 ID NOT IN (
-                    SELECT
-                        RelationshipID
-                    FROM
-                        ChildRelationship
-                    GROUP BY
-                        RelationshipID
-                ) AND
-                Person1ID IS NULL AND
-                Person2ID IS NULL
-            """;
-//        boolean found = false;
-        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
-            while (rs.next()) {
-//                found = true;
-                final var rel = rs.getLong("rel_id");
-                LOG.warn("EMPTY RELATIONSHIP (no parents, no children) ID: {}", rel);
-            }
-        }
-//        if (found) {
-//            if (!options.force) {
-//                LOG.warn("    THIS WAS A TEST; NO DATA HAS BEEN CHANGED! Use --force to force an update.");
-//            }else {
-//                fixEmptyRelationships();
-//            }
-//        }
+                    SELECT RelationshipID FROM ChildRelationship GROUP BY RelationshipID
+                ) AND (
+                    Person1ID IS NULL AND Person2ID IS NULL
+                )
+            """);
+        final var relsOnlyChildren = selectIds("""
+            SELECT id FROM Relationship
+            WHERE
+                ID IN (
+                    SELECT RelationshipID FROM ChildRelationship GROUP BY RelationshipID
+                ) AND (
+                    Person1ID IS NULL AND Person2ID IS NULL
+                )
+            """);
+        final var relsOnlyOneParent = selectIds("""
+            SELECT id FROM Relationship
+            WHERE
+                ID NOT IN (
+                    SELECT RelationshipID FROM ChildRelationship GROUP BY RelationshipID
+                ) AND (
+                    (Person1ID IS NOT NULL AND Person2ID IS NULL) OR
+                    (Person2ID IS NOT NULL AND Person1ID IS NULL)
+                )
+            """);
+        final var persMultipleFamilies = selectIds("""
+            SELECT personid AS id FROM ChildRelationship GROUP BY personid HAVING COUNT(personid) > 1
+            """);
+
+        logRels(relsNoPeople, "Relationship wih no parents and no children");
+        logRels(relsOnlyChildren, "Relationship wih no parents and at least one child");
+        logRels(relsOnlyOneParent, "Relationship wih exactly one parent with no children");
+        logChildOfMultipleFamilies(persMultipleFamilies, "Child in multiple families");
+        // TODO implement automatic deleting? (is it OK with syncing?)
     }
 
-// TODO Relationships could have dependent Facts, Media, etc., etc., so don't
-// implement automatic deleting until we implement finding and displaying all related rows
+    private void logChildOfMultipleFamilies(final SortedSet<Long> pers, final String msg) throws SQLException {
+        for (final var p : pers) {
+            LOG.warn("{}: ID={}", msg, p);
+            logPerson(p, "child");
+            logParentFamilies(p);
+        }
+    }
 
-//    private void fixEmptyRelationships() throws SQLException {
-//        final var sql = """
-//            DELETE
-//                Relationship
-//            WHERE
-//                ID NOT IN (
-//                    SELECT
-//                        RelationshipID
-//                    FROM
-//                        ChildRelationship
-//                    GROUP BY
-//                        RelationshipID
-//                ) AND
-//                Person1ID IS NULL AND
-//                Person2ID IS NULL
-//            """;
-//        try (final var delete = this.db.prepareStatement(sql)) {
-//            final var cUpdate = delete.executeUpdate();
-//            LOG.info("    Updated row count: {}", cUpdate);
-//        }
-//    }
-
-    // Finds people as only child in relationships having no parents
-    private void findOrphans() throws SQLException {
+    private void logParentFamilies(final Long idPerson) throws SQLException {
         final var sql = """
             SELECT
-                C.PersonID AS person_id,
-                COUNT(*) AS c_children
+                r.id AS relationshipid,
+                p1.fullname AS parent1,
+                p2.fullname AS parent2
             FROM
-                ChildRelationship C
-            WHERE
-                C.RelationshipID IN (
-                    SELECT
-                        R.ID
-                    FROM
-                        Relationship R
-                    WHERE
-                        R.Person1ID IS NULL AND
-                        R.Person2ID IS NULL
-                )
-            GROUP BY
-                C.RelationshipID
-            HAVING
-                c_children = 1
+                childrelationship AS c LEFT OUTER JOIN
+                relationship AS r ON (r.id = c.relationshipid) LEFT OUTER JOIN
+                person AS p1 ON (p1.id = r.person1id) LEFT OUTER JOIN
+                person AS p2 ON (p2.id = r.person2id)
+            WHERE c.personid = ?
             """;
-        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
-            while (rs.next()) {
-                final var person = rs.getLong("person_id");
-                LOG.warn("DANGLING RELATIONSHIP (no parents, one child) related to person ID: {}", person);
+        try (final var q = this.db.prepareStatement(sql)) {
+            q.setLong(1, idPerson);
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var idRel = rs.getLong("relationshipid");
+                    final var parent1 = getStringFrom("parent1", rs);
+                    final var parent2 = getStringFrom("parent2", rs);
+                    final String parents;
+                    if (parent1.isBlank() && parent2.isBlank()) {
+                        parents = "(no parents)";
+                    } else if (parent2.isBlank()) {
+                        parents = "one parent : "+parent1;
+                    } else if (parent1.isBlank()) {
+                        parents = "one parent : "+parent2;
+                    } else {
+                        parents = "two parents: "+parent1+" & "+parent2;
+                    }
+                    LOG.info("    relationship: ID={}, {}", idRel, parents);
+                }
             }
         }
     }
 
-    // Finds people as single parent in relationships having no children
-    private void findChildlessSingleParents() throws SQLException {
-        final var sql = """
-            SELECT
-                COALESCE(Person1ID, Person2ID) AS person_id
-            FROM
-                Relationship
-            WHERE
-                (
-                    ID NOT IN (
-                        SELECT
-                            RelationshipID
-                        FROM
-                            ChildRelationship
-                        GROUP BY
-                            RelationshipID
-                    )
-                ) AND (
-                    Person1ID IS NULL OR
-                    Person2ID IS NULL
-                ) AND (
-                    Person1ID IS NOT NULL OR
-                    Person2ID IS NOT NULL
-                )
-            """;
-        try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
-            while (rs.next()) {
-                final var person = rs.getLong("person_id");
-                LOG.warn("DANGLING RELATIONSHIP (one parent, no children) related to person ID: {}", person);
+    private void logRels(final SortedSet<Long> rels, final String msg) throws SQLException {
+        for (final var id : rels) {
+            LOG.warn("{}: ID={}", msg, id);
+
+            SortedSet<Long> people;
+            people = selectIds("SELECT person1id AS id FROM relationship WHERE id = ?", Optional.of(id));
+            for (final var p : people) {
+                logPerson(p, "parent");
+            }
+            people = selectIds("SELECT person2id AS id FROM relationship WHERE id = ?", Optional.of(id));
+            for (final var p : people) {
+                logPerson(p, "parent");
+            }
+            people = selectIds("SELECT personid AS id FROM childrelationship WHERE relationshipid = ?", Optional.of(id));
+            for (final var p : people) {
+                logPerson(p, "child");
+            }
+            logRelFacts(id);
+            // TODO also log related Note and MediaLink rows
+        }
+    }
+
+    private void logRelFacts(final Long optRelationshipID) throws SQLException {
+        var sql = """
+                SELECT
+                    f.date AS date,
+                    f.text AS s,
+                    '('||t.tag||') '||t.name AS type,
+                    p.name AS place
+                FROM
+                    fact AS f LEFT OUTER JOIN
+                    facttype AS t ON (t.id = f.facttypeid) LEFT OUTER JOIN
+                    place AS p ON (p.id = f.placeid)
+                WHERE f.linktableid = 7 AND f.linkid = ?
+                """;
+        try (final var q = this.db.prepareStatement(sql)) {
+            q.setLong(1, optRelationshipID);
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var date = getDateFrom("date", rs);
+                    final var s = getStringFrom("s", rs);
+                    final var type = getStringFrom("type", rs);
+                    final var place = getPlaceFrom("place", rs);
+                    LOG.info("    type=\"{}\", date=\"{}\", text=\"{}\", place=\"{}\"", type, date, s, place);
+                }
             }
         }
     }
+
+    private String getPlaceFrom(final String col, final ResultSet rs) throws SQLException {
+        final var factplace = getStringFrom(col, rs);
+        if (factplace.isBlank()) {
+            return "";
+        }
+        return FtmPlace.fromFtmPlace(factplace).toString();
+    }
+
+    private String getDateFrom(final String col, ResultSet rs) throws SQLException {
+        final var factdate = getStringFrom(col, rs);
+        if (factdate.isBlank()) {
+            return "";
+        }
+        return FtmDate.fromFtmFactDate(factdate).toString();
+    }
+
+    private String getStringFrom(final String col, final ResultSet rs) throws SQLException {
+        final var s = rs.getString(col);
+        if (rs.wasNull()) {
+            return "";
+        }
+        if (s.isBlank()) {
+            return "";
+        }
+        return s.strip();
+    }
+
+    private void logPerson(final Long p, final String msg) throws SQLException {
+        final var s = selectOneString("SELECT fullname AS s FROM person WHERE id = ?", Optional.of(p));
+        LOG.info("    {}: ID={}, name=\"{}\"", msg, p, s);
+    }
+
+    // string column must be named as "s"
+    private String selectOneString(final String sql, final Optional<Long> optID) throws SQLException {
+        String ret = "";
+        try (final var q = this.db.prepareStatement(sql)) {
+            if (optID.isPresent()) {
+                q.setLong(1, optID.get());
+            }
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    ret = getStringFrom("s", rs);
+                }
+            }
+        }
+        return ret;
+    }
+
+    /**
+     * Selects a set of "id" column values (long), from rows returned by the given SQL SELECT.
+     * @param sql "SELECT col AS id FROM tab WHERE id = ?"
+     * @return sorted (possibly empty) set of IDs (never returns null, and no nulls will be in the set)
+     * @throws SQLException
+     */
+    private SortedSet<Long> selectIds(final String sql, final Optional<Long> optID) throws SQLException {
+        final var ret = new TreeSet<Long>();
+        try (final var q = this.db.prepareStatement(sql)) {
+            if (optID.isPresent()) {
+                q.setLong(1, optID.get());
+            }
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var id = rs.getLong("id");
+                    if (!rs.wasNull()) {
+                        ret.add(id);
+                    }
+                }
+            }
+        }
+        return Collections.unmodifiableSortedSet(ret);
+    }
+
+    /**
+     * Selects a set of "id" column values (long), from rows returned by the given SQL SELECT.
+     * @param sql "SELECT col AS id FROM tab"
+     * @return sorted (possibly empty) set of IDs (never returns null, and no nulls will be in the set)
+     * @throws SQLException
+     */
+    private SortedSet<Long> selectIds(final String sql) throws SQLException {
+        return selectIds(sql, Optional.empty());
+    }
+
+
 
     private void verifyXml() throws SQLException {
         final var sql = """
