@@ -116,6 +116,7 @@ public class FtmFixer {
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
             ftmFixer.findAnomalousRelationships();
+            // TODO show Sources not associated with any facts...
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
@@ -149,10 +150,54 @@ public class FtmFixer {
         ).forEach(s -> verifySyncVersionTable(syncVersion, s));
     }
 
+    // All tables that can be linked to, as long as they still exist.
+    // Index within list is "LinkTableID" column value.
+    // Empty strings indicate tables that don't exist (anymore).
+    private static final List<String> rTablesByNumber =
+        List.of("",
+        "ChildRelationship",
+        "Fact",
+        "FactType",
+        "Note",
+        "Person",
+        "Place",
+        "Relationship",
+        "Setting",
+        "Task",
+        "MasterSource",
+        "",
+        "Repository",
+        "MediaFile",
+        "MediaLink",
+        "",
+        "Source",
+        "SourceLink",
+        "",
+        "",
+        "",
+        "Publication",
+        "HistoryList",
+        "Deleted",
+        "",
+        "WebLink",
+        "Tag",
+        "TagLink",
+        "",
+        "",
+        "PersonExternal",
+        "ChangeMacroCommand",
+        "ChangeCommand",
+        "DynamicFilter",
+        "DynamicFilterItem",
+        "Watermark",
+        "DnaMatch",
+        "",
+        "MediaFileOriginal");
+
     private void verifySyncVersionTable(int syncVersion, String table) {
         final var sql = "SELECT COUNT(*) FROM "+table+" WHERE SyncVersion > ?";
         try (final var q = this.db.prepareStatement(sql)) {
-             q.setInt(1, syncVersion);
+            q.setInt(1, syncVersion);
             try (final var rs = q.executeQuery()) {
                 while (rs.next()) {
                     final var c = rs.getInt(1);
@@ -262,6 +307,8 @@ public class FtmFixer {
                 person AS p2 ON (p2.id = r.person2id)
             WHERE c.personid = ?
             """;
+        final var rRelId = new ArrayList<Long>();
+        final var rRelName = new ArrayList<String>();
         try (final var q = this.db.prepareStatement(sql)) {
             q.setLong(1, idPerson);
             try (final var rs = q.executeQuery()) {
@@ -279,9 +326,17 @@ public class FtmFixer {
                     } else {
                         parents = "two parents: "+parent1+" & "+parent2;
                     }
-                    LOG.info("    relationship: ID={}, {}", idRel, parents);
+                    rRelId.add(idRel);
+                    rRelName.add(parents);
                 }
             }
+        }
+        for (int i = 0; i < rRelId.size(); ++i) {
+            final var idRel = rRelId.get(i);
+            final var sRel = rRelName.get(i);
+            LOG.info("    relationship: ID={}, {}", idRel, sRel);
+            logAllLinkedChildrenOf("        ", 7, idRel);
+            LOG.info("    ----");
         }
     }
 
@@ -416,8 +471,6 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = 2 AND t.linkid =
                 while (rs.next()) {
                     final var sTableChild = getStringFrom("nameTable", rs);
                     final var idChild = getLongFrom("id", rs);
-//                    LOG.info("{}table={}, id={}",
-//                        indent, sTableChild, idChild);
                     if (sTableChild.equals("Fact")) {
                         idFacts.add(idChild);
                     } else if (sTableChild.equals("SourceLink")) {
