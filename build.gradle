@@ -1,11 +1,11 @@
 plugins {
     id 'application'
-    id 'com.coditory.manifest' version '0.2.1'
+    id 'com.coditory.manifest' version '1.1.0'
 }
 
-this.version = '1.0.7'
+version = '1.0.7'
 
-this.group = 'nu.mine.mosher.genealogy'
+group = 'nu.mine.mosher.genealogy'
 
 java {
     toolchain {

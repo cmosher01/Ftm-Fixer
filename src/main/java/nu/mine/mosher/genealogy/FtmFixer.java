@@ -104,6 +104,11 @@ public class FtmFixer {
         LOG.debug("Program completed normally.");
     }
 
+    // parent is index into rLinkParentTablesByNumber
+    // child is name of table from rLinkChildTables
+    private record ChildParentLinks(int parent, String child) {
+    }
+
     private static void fixDatabase(final String arg) {
         try {
             final var path = Paths.get(arg);
@@ -116,7 +121,9 @@ public class FtmFixer {
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
             ftmFixer.findAnomalousRelationships();
-            // TODO show Sources not associated with any facts...
+            final var setChildParentLinks = ftmFixer.getLinkCountsForChildTables();
+            ftmFixer.findOrphanedLinkRows(setChildParentLinks);
+            ftmFixer.logItemsNoChildRowsOrInvalidParentRows();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
@@ -125,74 +132,118 @@ public class FtmFixer {
     private void verifySyncVersions() throws SQLException {
         final var syncVersion = readSyncVersion();
 
-        List.of(
-            "ChildRelationship",
-            "Deleted",
-            "Fact",
-            "FactType",
-            "MasterSource",
-            "MediaFile",
-            "MediaLink",
-            "Note",
-            "Person",
-            "Place",
-            "Publication",
-            "Relationship",
-            "Repository",
-            "Source",
-            "SourceLink",
-            "Tag",
-            "TagLink",
-            "Task",
-            "WebLink",
-            "PersonExternal",
-            "Watermark"
-        ).forEach(s -> verifySyncVersionTable(syncVersion, s));
+        FtmSchema.rSyncVersionTables.forEach(s -> verifySyncVersionTable(syncVersion, s));
     }
 
-    // All tables that can be linked to, as long as they still exist.
-    // Index within list is "LinkTableID" column value.
-    // Empty strings indicate tables that don't exist (anymore).
-    private static final List<String> rTablesByNumber =
-        List.of("",
-        "ChildRelationship",
-        "Fact",
-        "FactType",
-        "Note",
-        "Person",
-        "Place",
-        "Relationship",
-        "Setting",
-        "Task",
-        "MasterSource",
-        "",
-        "Repository",
-        "MediaFile",
-        "MediaLink",
-        "",
-        "Source",
-        "SourceLink",
-        "",
-        "",
-        "",
-        "Publication",
-        "HistoryList",
-        "Deleted",
-        "",
-        "WebLink",
-        "Tag",
-        "TagLink",
-        "",
-        "",
-        "PersonExternal",
-        "ChangeMacroCommand",
-        "ChangeCommand",
-        "DynamicFilter",
-        "DynamicFilterItem",
-        "Watermark",
-        "DnaMatch",
-        "",
-        "MediaFileOriginal");
+    private void findOrphanedLinkRows(final Set<ChildParentLinks> setChildParentLinks) throws SQLException {
+        for (final var childParentLink : setChildParentLinks) {
+            final var sParent = FtmSchema.rLinkParentTablesByNumber.get(childParentLink.parent());
+            final var sql = String.format(
+                "SELECT c.id AS childid, p.id AS parentid " +
+                "FROM %s AS c LEFT OUTER JOIN %s AS p ON (p.id = c.linkid) " +
+                "WHERE c.linktableid = %d",
+                childParentLink.child(), sParent, childParentLink.parent());
+            LOG.info(sql);
+            try (final var q = this.db.prepareStatement(sql)) {
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var c = getIntFrom("childid", rs);
+                        final var p = getIntFrom("parentid", rs);
+                        if (p < 0) {
+                            LOG.warn(String.format("Orphaned %s (ID=%5d) from %s", childParentLink.child(), c, sParent));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private Set<ChildParentLinks> getLinkCountsForChildTables() throws SQLException {
+        final var ret = new HashSet<ChildParentLinks>();
+        for (final var sLinkChildTable : FtmSchema.rLinkChildTables) {
+            final var sql = String.format("SELECT linktableid, COUNT(*) AS c FROM %s GROUP BY linktableid ORDER BY c DESC", sLinkChildTable);
+            try (final var q = this.db.prepareStatement(sql)) {
+                try (final var rs = q.executeQuery()) {
+                    LOG.info("Parent link counts for child table: {}", sLinkChildTable);
+                    while (rs.next()) {
+                        final var idLinkTable = getIntFrom("linktableid", rs);
+                        final String sTable;
+                        if (0 <= idLinkTable && idLinkTable < FtmSchema.rLinkParentTablesByNumber.size()) {
+                            final var s = FtmSchema.rLinkParentTablesByNumber.get(idLinkTable);
+                            if (s.isBlank()) {
+                                sTable = "INVALID "+getStringFrom("linktableid", rs);
+                            } else {
+                                sTable = s;
+                            }
+                        } else {
+                            sTable = "INVALID "+getStringFrom("linktableid", rs);;
+                        }
+                        final var c = getIntFrom("c", rs);
+                        LOG.info(String.format("%6d %s", c, sTable));
+                        if (!sTable.startsWith("INVALID")) {
+                            ret.add(new ChildParentLinks(idLinkTable, sLinkChildTable));
+                        }
+                    }
+                }
+            }
+        }
+        return ret;
+    }
+
+    private void logItemsNoChildRowsOrInvalidParentRows() throws SQLException {
+        logItemNoChildRowsOrInvalidParentRows("MasterSource", "RepositoryID", "Repository", true);
+        logItemNoChildRowsOrInvalidParentRows("Source", "MasterSourceID", "MasterSource", false);
+        logItemNoChildRowsOrInvalidParentRows("SourceLink", "SourceID", "Source", false);
+        logItemNoChildRowsOrInvalidParentRows("MediaLink", "MediaFileID", "MediaFile", false);
+        logItemNoChildRowsOrInvalidParentRows("Fact", "PlaceID", "Place", true);
+//        logItemNoChildRowsOrInvalidParentRows("Person", "BirthPlaceID", "Place", true);
+//        logItemNoChildRowsOrInvalidParentRows("Person", "DeathPlaceID", "Place", true);
+//        logItemNoChildRowsOrInvalidParentRows("Person", "MarriagePlaceID", "Place", true);
+    }
+
+    private void logItemNoChildRowsOrInvalidParentRows(final String sTableChild, final String sColChild, final String sTableParent, final boolean optional) throws SQLException {
+        logItemNoChildRows(sTableChild, sColChild, sTableParent);
+        logItemInvalidParentRows(sTableChild, sColChild, sTableParent, optional);
+    }
+
+    private void logItemInvalidParentRows(final String sTableChild, final String sColChild, final String sTableParent, final boolean optional) throws SQLException {
+        String sql = String.format(
+                "SELECT c.id AS childid, p.id AS parentid, c.%s AS invalidid " +
+                "FROM %s AS c LEFT OUTER JOIN %s AS p ON (p.id = c.%s) " +
+                "WHERE p.id IS NULL",
+                sColChild, sTableChild, sTableParent, sColChild);
+
+        if (optional) {
+            sql = sql+String.format(" AND c.%s IS NOT NULL", sColChild);
+        }
+        LOG.info(sql);
+        try (final var q = this.db.prepareStatement(sql)) {
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var childid = getIntFrom("childid", rs);
+                    final var invalidid = getStringFrom("invalidid", rs);
+                    LOG.warn(String.format("%s ID=%5d has invalid %s ID: %s", sTableChild, childid, sTableParent, invalidid));
+                }
+            }
+        }
+    }
+
+    private void logItemNoChildRows(final String sTableChild, final String sColChild, final String sTableParent) throws SQLException {
+        final var sql = String.format(
+            "SELECT p.id AS parentid " +
+            "FROM %s AS p LEFT OUTER JOIN %s AS c ON (c.%s = p.id) " +
+            "GROUP BY parentid HAVING COUNT(c.id) = 0",
+            sTableParent, sTableChild, sColChild);
+        LOG.info(sql);
+        try (final var q = this.db.prepareStatement(sql)) {
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var parentid = getIntFrom("parentid", rs);
+                    LOG.warn(String.format("%s ID=%5d has no related %s.%s rows", sTableParent, parentid, sTableChild, sColChild));
+                }
+            }
+        }
+    }
 
     private void verifySyncVersionTable(int syncVersion, String table) {
         final var sql = "SELECT COUNT(*) FROM "+table+" WHERE SyncVersion > ?";
@@ -589,6 +640,18 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = 2 AND t.linkid =
 
 
 
+
+    private int getIntFrom(final String col, final ResultSet rs) throws SQLException {
+        final var s = getStringFrom(col, rs);
+        if (s.isBlank()) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(s, 10);
+        } catch (final Exception ignore) {
+            return -1;
+        }
+    }
 
     private Long getLongFrom(final String col, final ResultSet rs) throws SQLException {
         final var s = getStringFrom(col, rs);
