@@ -151,6 +151,7 @@ public class FtmFixer {
                         final var p = getIntFrom("parentid", rs);
                         if (p < 0) {
                             LOG.warn(String.format("Orphaned %s (ID=%5d) from %s", childParentLink.child(), c, sParent));
+                            logTableInfoByName("    ", childParentLink.child(), c);
                         }
                     }
                 }
@@ -223,6 +224,7 @@ public class FtmFixer {
                     final var childid = getIntFrom("childid", rs);
                     final var invalidid = getStringFrom("invalidid", rs);
                     LOG.warn(String.format("%s ID=%5d has invalid %s ID: %s", sTableChild, childid, sTableParent, invalidid));
+                    logTableInfoByName("    ", sTableChild, childid);
                 }
             }
         }
@@ -240,6 +242,99 @@ public class FtmFixer {
                 while (rs.next()) {
                     final var parentid = getIntFrom("parentid", rs);
                     LOG.warn(String.format("%s ID=%5d has no related %s.%s rows", sTableParent, parentid, sTableChild, sColChild));
+                    logTableInfoByName("    ", sTableParent, parentid);
+                }
+            }
+        }
+    }
+
+    private void logTableInfoByName(final String indent, final String sTableName, final int id) throws SQLException {
+        if (sTableName.equals("MasterSource")) {
+            final var sql = "SELECT id, title, author FROM mastersource WHERE id = ?";
+            try (final var q = this.db.prepareStatement(sql)) {
+                q.setLong(1, id);
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var idRead = getLongFrom("id", rs);
+                        final var sAuthor = getStringFrom("author", rs);
+                        final var sTitle = getStringFrom("title", rs);
+                        LOG.info("{}table=MasterSource, id={}, author=\"{}\", title=\"{}\"",
+                            indent, idRead, sAuthor, sTitle);
+                    }
+                }
+            }
+        } else if (sTableName.equals("Place")) {
+            final var sql = "SELECT id, name FROM place WHERE id = ?";
+            try (final var q = this.db.prepareStatement(sql)) {
+                q.setLong(1, id);
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var idRead = getLongFrom("id", rs);
+                        final var sName = getStringFrom("name", rs);
+                        LOG.info("{}table=Place, id={}, name=\"{}\"", indent, idRead, sName);
+                    }
+                }
+            }
+        } else if (sTableName.equals("MediaFile")) {
+            final var sql = "SELECT id, filename FROM mediafile WHERE id = ?";
+            try (final var q = this.db.prepareStatement(sql)) {
+                q.setLong(1, id);
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var idRead = getLongFrom("id", rs);
+                        final var sName = getStringFrom("filename", rs);
+                        LOG.info("{}table=MediaFile, id={}, file=\"{}\"", indent, idRead, sName);
+                    }
+                }
+            }
+        } else if (sTableName.equals("Source")) {
+            final var sql = """
+            SELECT
+                s.id,
+                s.pid,
+                s.pagenumber,
+                m.title
+            FROM
+                source AS s LEFT OUTER JOIN
+                mastersource AS m ON (m.id = s.mastersourceid)
+            WHERE
+                s.id = ?
+            """;
+            try (final var q = this.db.prepareStatement(sql)) {
+                q.setLong(1, id);
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var idSource = getLongFrom("id", rs);
+                        final var sPid = getStringFrom("pid", rs);
+                        final var sPage = getStringFrom("pagenumber", rs);
+                        final var sTitle = getStringFrom("title", rs);
+                        LOG.info("{}table=Source, id={}, PID=\"{}\", page=\"{}\", title=\"{}\"",
+                            indent, idSource, sPid, sPage, sTitle);
+                    }
+                }
+            }
+        } else if (sTableName.equals("Repository")) {
+            final var sql = "SELECT id, name FROM repository WHERE id = ?";
+            try (final var q = this.db.prepareStatement(sql)) {
+                q.setLong(1, id);
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var idRead = getLongFrom("id", rs);
+                        final var sName = getStringFrom("name", rs);
+                        LOG.info("{}table=Repository, id={}, name=\"{}\"", indent, idRead, sName);
+                    }
+                }
+            }
+        } else if (sTableName.equals("Note")) {
+            final var sql = "SELECT id, notetext FROM note WHERE id = ?";
+            try (final var q = this.db.prepareStatement(sql)) {
+                q.setLong(1, id);
+                try (final var rs = q.executeQuery()) {
+                    while (rs.next()) {
+                        final var idRead = getLongFrom("id", rs);
+                        final var sName = getStringFrom("notetext", rs);
+                        LOG.info("{}table=Place, id={}, text=\"{}\"", indent, idRead, sName);
+                    }
                 }
             }
         }
@@ -479,8 +574,6 @@ public class FtmFixer {
         }
     }
 
-    private static final List<String> linkables = List.of("WebLink", "Task", "TagLink", "SourceLink", "Note", "MediaLink", "Fact");
-
     private void logAllLinkedChildrenOf(final String indent, final long tableParent, final long idParent) throws SQLException {
         /*
 SELECT 'WebLink'   , id FROM WebLink    t WHERE t.linktableid = 2 AND t.linkid = 1047 UNION ALL
@@ -493,12 +586,12 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = 2 AND t.linkid =
          */
         final var sb = new StringBuilder(1024);
         boolean first = true;
-        for (final var linkable : linkables) {
+        for (final var linkable : FtmSchema.rLinkChildTables) {
             if (!first) {
                 sb.append(" UNION ALL ");
             }
             sb.append("SELECT ");
-            sb.append("\'").append(linkable).append("\' AS nameTable, ");
+            sb.append("'").append(linkable).append("' AS nameTable, ");
             sb.append("id FROM ").append(linkable).append(" AS t WHERE t.linktableid = ? AND t.linkid = ?");
             first = false;
         }
@@ -514,7 +607,7 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = 2 AND t.linkid =
         final var idNotes = new ArrayList<Long>();
         final var idMediaLinks = new ArrayList<Long>();
         try (final var q = this.db.prepareStatement(sql)) {
-            for (int i = 0; i < linkables.size(); ++i) {
+            for (int i = 0; i < FtmSchema.rLinkChildTables.size(); ++i) {
                 q.setLong(2*i+1, tableParent);
                 q.setLong(2*i+2, idParent);
             }
