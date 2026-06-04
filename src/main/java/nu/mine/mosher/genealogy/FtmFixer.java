@@ -11,6 +11,7 @@ import java.io.*;
 import java.nio.file.Paths;
 import java.sql.*;
 import java.util.*;
+import java.util.prefs.Preferences;
 
 import static java.util.Objects.requireNonNullElse;
 import static nu.mine.mosher.genealogy.FtmUtil.*;
@@ -126,6 +127,7 @@ public class FtmFixer {
             final var setChildParentLinks = ftmFixer.getLinkCountsForChildTables();
             ftmFixer.findOrphanedLinkRows(setChildParentLinks);
             ftmFixer.logItemsNoChildRowsOrInvalidParentRows();
+            ftmFixer.logDuplicateMediaContents();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
@@ -250,7 +252,7 @@ public class FtmFixer {
         }
     }
 
-    private void logTableInfoByName(final String indent, final String sTableName, final int id) throws SQLException {
+    private void logTableInfoByName(final String indent, final String sTableName, final long id) throws SQLException {
         switch (sTableName) {
             case "MasterSource" -> {
                 final var sql = "SELECT id, title, author FROM mastersource WHERE id = ?";
@@ -752,6 +754,100 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
         }
         LOG.info("{}{}: ID={}, name=\"{}\"", indent, msg, id, sName);
     }
+
+
+
+
+
+    private final Map<String,Set<Long>> mapFileHashToMediaFileIds = new HashMap<>();
+
+    private void logDuplicateMediaContents() throws SQLException {
+        final var sql = "SELECT id, filehash FROM mediafile ORDER BY filehash";
+        String hashPrev = "";
+        long idPrev = -1;
+        try (final var q = this.db.prepareStatement(sql)) {
+            try (final var rs = q.executeQuery()) {
+                boolean first = true;
+                while (rs.next()) {
+                    if (first) {
+                        hashPrev = getStringFrom("filehash", rs);
+                        idPrev = getLongFrom("id", rs);
+                        first = false;
+                    } else {
+                        final var hashCurr = getStringFrom("filehash", rs);
+                        final var idCurr = getLongFrom("id", rs);
+                        if (hashCurr.equals(hashPrev)) {
+                            if (!this.mapFileHashToMediaFileIds.containsKey(hashCurr)) {
+                                final var ids = new HashSet<Long>();
+                                ids.add(idPrev);
+                                ids.add(idCurr);
+                                this.mapFileHashToMediaFileIds.put(hashCurr, ids);
+                            } else {
+                                final var ids = this.mapFileHashToMediaFileIds.get(hashCurr);
+                                ids.add(idCurr);
+                            }
+                        }
+                        hashPrev = hashCurr;
+                        idPrev = idCurr;
+                    }
+                }
+            }
+        }
+
+        final var sql2 = "SELECT id, filehash, pid, syncversion, filename, filedescription FROM mediafile WHERE id = ?";
+        try (final var q = this.db.prepareStatement(sql2)) {
+            for (final var hash : this.mapFileHashToMediaFileIds.keySet()) {
+                LOG.info("Duplicate media files with hash: {}", hash);
+                final var ids = this.mapFileHashToMediaFileIds.get(hash);
+                for (final var id : ids) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var hashRead = getStringFrom("filehash", rs);
+                            final var sPid = getStringFrom("pid", rs);
+                            final var sync = getLongFrom("syncversion", rs);
+                            LOG.info(String.format("    ID=%5d, hash=%32s, SyncVersion=%4d, PID=%s", idRead, hashRead, sync, sPid));
+                        }
+                    }
+                }
+                for (final var id : ids) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var fileName = getStringFrom("filename", rs);
+                            LOG.info(String.format("    ID=%5d, filename=%s", idRead, fileName));
+                        }
+                    }
+                }
+                for (final var id : ids) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var fileDesc = getStringFrom("filedescription", rs);
+                            LOG.info(String.format("    ID=%5d, description=\"%s\"", idRead, fileDesc));
+                        }
+                    }
+                }
+                for (final var id : ids) {
+                    LOG.info(String.format("    ID=%5d", id));
+                    final var medialinkids = selectIds("SELECT id FROM medialink WHERE mediafileid = ?", Optional.of(id));
+                    for (final var medialinkid : medialinkids) {
+                        logTableInfoByName("        ", "MediaLink", medialinkid);
+                    }
+                }
+            }
+        }
+    }
+
+
+
+
+
+
+
 
 
 
