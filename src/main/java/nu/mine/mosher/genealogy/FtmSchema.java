@@ -36,6 +36,7 @@ public class FtmSchema {
 
     // (Child) tables that have LinkTableID and LinkID columns.
     // Each row *SHOULD* point to a parent row in another table.
+    // SELECT * FROM <LinkTableID> WHERE id = <LinkID>
     public static final List<String> rLinkChildTables = List.of(
         "Fact",
         "Note",

@@ -13,6 +13,7 @@ import java.sql.*;
 import java.util.*;
 
 import static java.util.Objects.requireNonNullElse;
+import static nu.mine.mosher.genealogy.FtmUtil.*;
 
 /**
  * Updates any necessary Person identification value.
@@ -65,6 +66,7 @@ import static java.util.Objects.requireNonNullElse;
  * would contain both UUIDs).
  * </p>
  */
+@SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "StringConcatenationArgumentToLogCall", "LoggingSimilarMessage"})
 public class FtmFixer {
     private static final Logger LOG = LoggerFactory.getLogger(FtmFixer.class);
     private static FtmFixerOptions options;
@@ -177,7 +179,7 @@ public class FtmFixer {
                                 sTable = s;
                             }
                         } else {
-                            sTable = "INVALID "+getStringFrom("linktableid", rs);;
+                            sTable = "INVALID "+getStringFrom("linktableid", rs);
                         }
                         final var c = getIntFrom("c", rs);
                         LOG.info(String.format("%6d %s", c, sTable));
@@ -249,222 +251,234 @@ public class FtmFixer {
     }
 
     private void logTableInfoByName(final String indent, final String sTableName, final int id) throws SQLException {
-        if (sTableName.equals("MasterSource")) {
-            final var sql = "SELECT id, title, author FROM mastersource WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sAuthor = getStringFrom("author", rs);
-                        final var sTitle = getStringFrom("title", rs);
-                        LOG.info("{}table=MasterSource, id={}, author=\"{}\", title=\"{}\"",
-                            indent, idRead, sAuthor, sTitle);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+        switch (sTableName) {
+            case "MasterSource" -> {
+                final var sql = "SELECT id, title, author FROM mastersource WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sAuthor = getStringFrom("author", rs);
+                            final var sTitle = getStringFrom("title", rs);
+                            LOG.info("{}table=MasterSource, id={}, author=\"{}\", title=\"{}\"",
+                                    indent, idRead, sAuthor, sTitle);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("Place")) {
-            final var sql = "SELECT id, name FROM place WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sName = getStringFrom("name", rs);
-                        LOG.info("{}table=Place, id={}, name=\"{}\"", indent, idRead, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "Place" -> {
+                final var sql = "SELECT id, name FROM place WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sName = getStringFrom("name", rs);
+                            LOG.info("{}table=Place, id={}, name=\"{}\"", indent, idRead, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("MediaFile")) {
-            final var sql = "SELECT id, filename FROM mediafile WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sName = getStringFrom("filename", rs);
-                        LOG.info("{}table=MediaFile, id={}, file=\"{}\"", indent, idRead, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "MediaFile" -> {
+                final var sql = "SELECT id, filename FROM mediafile WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sName = getStringFrom("filename", rs);
+                            LOG.info("{}table=MediaFile, id={}, file=\"{}\"", indent, idRead, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("Source")) {
-            final var sql = """
-            SELECT
-                s.id,
-                s.pid,
-                s.pagenumber,
-                m.title
-            FROM
-                source AS s LEFT OUTER JOIN
-                mastersource AS m ON (m.id = s.mastersourceid)
-            WHERE
-                s.id = ?
-            """;
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sPid = getStringFrom("pid", rs);
-                        final var sPage = getStringFrom("pagenumber", rs);
-                        final var sTitle = getStringFrom("title", rs);
-                        LOG.info("{}table=Source, id={}, PID=\"{}\", page=\"{}\", title=\"{}\"",
-                            indent, idRead, sPid, sPage, sTitle);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "Source" -> {
+                final var sql = """
+                        SELECT
+                            s.id,
+                            s.pid,
+                            s.pagenumber,
+                            m.title
+                        FROM
+                            source AS s LEFT OUTER JOIN
+                            mastersource AS m ON (m.id = s.mastersourceid)
+                        WHERE
+                            s.id = ?
+                        """;
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sPid = getStringFrom("pid", rs);
+                            final var sPage = getStringFrom("pagenumber", rs);
+                            final var sTitle = getStringFrom("title", rs);
+                            LOG.info("{}table=Source, id={}, PID=\"{}\", page=\"{}\", title=\"{}\"",
+                                    indent, idRead, sPid, sPage, sTitle);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("Repository")) {
-            final var sql = "SELECT id, name FROM repository WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sName = getStringFrom("name", rs);
-                        LOG.info("{}table=Repository, id={}, name=\"{}\"", indent, idRead, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "Repository" -> {
+                final var sql = "SELECT id, name FROM repository WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sName = getStringFrom("name", rs);
+                            LOG.info("{}table=Repository, id={}, name=\"{}\"", indent, idRead, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("Note")) {
-            final var sql = "SELECT id, notetext FROM note WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sName = getStringFrom("notetext", rs);
-                        LOG.info("{}table={}, id={}, text=\"{}\"", indent, sTableName, idRead, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "Note" -> {
+                final var sql = "SELECT id, notetext FROM note WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sName = getStringFrom("notetext", rs);
+                            LOG.info("{}table={}, id={}, text=\"{}\"", indent, sTableName, idRead, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("Task")) {
-            final var sql = "SELECT id, tasktext FROM task WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sName = getStringFrom("tasktext", rs);
-                        LOG.info("{}table={}, id={}, text=\"{}\"", indent, sTableName, idRead, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "Task" -> {
+                final var sql = "SELECT id, tasktext FROM task WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sName = getStringFrom("tasktext", rs);
+                            LOG.info("{}table={}, id={}, text=\"{}\"", indent, sTableName, idRead, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("TagLink")) {
-            final var sql =
-                "SELECT tl.id, t.id AS tagid, t.name " +
-                "FROM taglink AS tl LEFT OUTER JOIN tag AS t ON (t.id = tl.tagid) " +
-                "WHERE tl.id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var idTag = getLongFrom("tagid", rs);
-                        final var sName = getStringFrom("name", rs);
-                        LOG.info("{}table={}, id={}, tagid={}, tag=\"{}\"", indent, sTableName, idRead, idTag, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "TagLink" -> {
+                final var sql =
+                        "SELECT tl.id, t.id AS tagid, t.name " +
+                                "FROM taglink AS tl LEFT OUTER JOIN tag AS t ON (t.id = tl.tagid) " +
+                                "WHERE tl.id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var idTag = getLongFrom("tagid", rs);
+                            final var sName = getStringFrom("name", rs);
+                            LOG.info("{}table={}, id={}, tagid={}, tag=\"{}\"", indent, sTableName, idRead, idTag, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("WebLink")) {
-            final var sql = "SELECT id, url FROM weblink WHERE id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var sName = getStringFrom("url", rs);
-                        LOG.info("{}table={}, id={}, url={}", indent, sTableName, idRead, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "WebLink" -> {
+                final var sql = "SELECT id, url FROM weblink WHERE id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var sName = getStringFrom("url", rs);
+                            LOG.info("{}table={}, id={}, url={}", indent, sTableName, idRead, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("MediaLink")) {
-            final var sql =
-                "SELECT ml.id, mf.id AS mediafileid, mf.filename " +
-                "FROM medialink AS ml LEFT OUTER JOIN mediafile AS mf ON (mf.id = ml.mediafileid) " +
-                "WHERE ml.id = ?";
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("id", rs);
-                        final var idMediaFile = getLongFrom("mediafileid", rs);
-                        final var sName = getStringFrom("filename", rs);
-                        LOG.info("{}table=MediaLink, id={}, mediafileid={}, filename=\"{}\"", indent, idRead, idMediaFile, sName);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "MediaLink" -> {
+                final var sql =
+                        "SELECT ml.id, mf.id AS mediafileid, mf.filename " +
+                                "FROM medialink AS ml LEFT OUTER JOIN mediafile AS mf ON (mf.id = ml.mediafileid) " +
+                                "WHERE ml.id = ?";
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("id", rs);
+                            final var idMediaFile = getLongFrom("mediafileid", rs);
+                            final var sName = getStringFrom("filename", rs);
+                            LOG.info("{}table=MediaLink, id={}, mediafileid={}, filename=\"{}\"", indent, idRead, idMediaFile, sName);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("SourceLink")) {
-            final var sql = """
-            SELECT
-                sl.id AS sourcelinkid,
-                sl.sourceid,
-                s.pid,
-                m.title,
-                m.author
-            FROM
-                sourcelink AS sl LEFT OUTER JOIN
-                source AS s ON (s.id = sl.sourceid) LEFT OUTER JOIN
-                mastersource AS m ON (m.id = s.mastersourceid)
-            WHERE
-                sl.id = ?
-            """;
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("sourcelinkid", rs);
-                        final var idSource = getLongFrom("sourceid", rs);
-                        final var sPid = getStringFrom("pid", rs);
-                        final var sTitle = getStringFrom("title", rs);
-                        final var sAuthor = getPlaceFrom("author", rs);
-                        LOG.info("{}table=SourceLink, id={}, sourceid={} PID=\"{}\", title=\"{}\", author=\"{}\"",
-                                indent, idRead, idSource, sPid, sTitle, sAuthor);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "SourceLink" -> {
+                final var sql = """
+                        SELECT
+                            sl.id AS sourcelinkid,
+                            sl.sourceid,
+                            s.pid,
+                            m.title,
+                            m.author
+                        FROM
+                            sourcelink AS sl LEFT OUTER JOIN
+                            source AS s ON (s.id = sl.sourceid) LEFT OUTER JOIN
+                            mastersource AS m ON (m.id = s.mastersourceid)
+                        WHERE
+                            sl.id = ?
+                        """;
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("sourcelinkid", rs);
+                            final var idSource = getLongFrom("sourceid", rs);
+                            final var sPid = getStringFrom("pid", rs);
+                            final var sTitle = getStringFrom("title", rs);
+                            final var sAuthor = getPlaceFrom("author", rs);
+                            LOG.info("{}table=SourceLink, id={}, sourceid={} PID=\"{}\", title=\"{}\", author=\"{}\"",
+                                    indent, idRead, idSource, sPid, sTitle, sAuthor);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else if (sTableName.equals("Fact")) {
-            final var sql = """
-                SELECT
-                    f.id AS factid,
-                    '('||t.tag||') '||t.name AS type,
-                    f.text AS s,
-                    f.date AS date,
-                    p.name AS place
-                FROM
-                    fact AS f LEFT OUTER JOIN
-                    facttype AS t ON (t.id = f.facttypeid) LEFT OUTER JOIN
-                    place AS p ON (p.id = f.placeid)
-                WHERE
-                    f.id = ?
-                """;
-            try (final var q = this.db.prepareStatement(sql)) {
-                q.setLong(1, id);
-                try (final var rs = q.executeQuery()) {
-                    while (rs.next()) {
-                        final var idRead = getLongFrom("factid", rs);
-                        final var date = getDateFrom("date", rs);
-                        final var s = getStringFrom("s", rs);
-                        final var type = getStringFrom("type", rs);
-                        final var place = getPlaceFrom("place", rs);
-                        LOG.info("{}table=Fact, id={}, type=\"{}\", text=\"{}\", date=\"{}\", place=\"{}\"",
-                                indent, idRead, type, s, date, place);
-                        logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof(sTableName), idRead);
+            case "Fact" -> {
+                final var sql = """
+                        SELECT
+                            f.id AS factid,
+                            '('||t.tag||') '||t.name AS type,
+                            f.text AS s,
+                            f.date AS date,
+                            p.name AS place
+                        FROM
+                            fact AS f LEFT OUTER JOIN
+                            facttype AS t ON (t.id = f.facttypeid) LEFT OUTER JOIN
+                            place AS p ON (p.id = f.placeid)
+                        WHERE
+                            f.id = ?
+                        """;
+                try (final var q = this.db.prepareStatement(sql)) {
+                    q.setLong(1, id);
+                    try (final var rs = q.executeQuery()) {
+                        while (rs.next()) {
+                            final var idRead = getLongFrom("factid", rs);
+                            final var date = getDateFrom("date", rs);
+                            final var s = getStringFrom("s", rs);
+                            final var type = getStringFrom("type", rs);
+                            final var place = getPlaceFrom("place", rs);
+                            LOG.info("{}table=Fact, id={}, type=\"{}\", text=\"{}\", date=\"{}\", place=\"{}\"",
+                                    indent, idRead, type, s, date, place);
+                            logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
+                        }
                     }
                 }
             }
-        } else {
-            LOG.info("{}table={}, id={} (TODO: ADD MORE INFO FOR THIS TABLE)", indent, sTableName, id);
+            default -> LOG.info("{}table={}, id={} (TODO: ADD MORE INFO FOR THIS TABLE)", indent, sTableName, id);
         }
     }
 
@@ -553,9 +567,9 @@ public class FtmFixer {
             SELECT personid AS id FROM ChildRelationship GROUP BY personid HAVING COUNT(personid) > 1
             """);
 
-        logRels(relsNoPeople, "Relationship wih no parents and no children");
-        logRels(relsOnlyChildren, "Relationship wih no parents and at least one child");
-        logRels(relsOnlyOneParent, "Relationship wih exactly one parent with no children");
+        logRelationships(relsNoPeople, "Relationship with no parents and no children");
+        logRelationships(relsOnlyChildren, "Relationship with no parents and at least one child");
+        logRelationships(relsOnlyOneParent, "Relationship with exactly one parent with no children");
         logChildOfMultipleFamilies(persMultipleFamilies, "Child in multiple families");
         // TODO implement automatic deleting? (is it OK with syncing?)
     }
@@ -563,7 +577,7 @@ public class FtmFixer {
     private void logChildOfMultipleFamilies(final SortedSet<Long> pers, final String msg) throws SQLException {
         for (final var p : pers) {
             LOG.warn("{}: ID={}", msg, p);
-            logPerson(p, "child");
+            logPerson("    ", p, "child");
             logParentFamilies(p);
         }
     }
@@ -609,32 +623,35 @@ public class FtmFixer {
             final var idRel = rRelId.get(i);
             final var sRel = rRelName.get(i);
             LOG.info("    relationship: ID={}, {}", idRel, sRel);
-            logAllLinkedChildrenOf("        ", 7, idRel);
+            logAllLinkedChildrenOf("        ", FtmSchema.linkTableIDof("Relationship"), idRel);
             LOG.info("    ----");
         }
     }
 
-    private void logRels(final SortedSet<Long> rels, final String msg) throws SQLException {
+    private void logRelationships(final SortedSet<Long> rels, final String msg) throws SQLException {
         for (final var id : rels) {
-            LOG.warn("{}: ID={}", msg, id);
-
-            SortedSet<Long> people;
-            people = selectIds("SELECT person1id AS id FROM relationship WHERE id = ?", Optional.of(id));
-            for (final var p : people) {
-                logPerson(p, "parent");
-            }
-            people = selectIds("SELECT person2id AS id FROM relationship WHERE id = ?", Optional.of(id));
-            for (final var p : people) {
-                logPerson(p, "parent");
-            }
-            people = selectIds("SELECT personid AS id FROM childrelationship WHERE relationshipid = ?", Optional.of(id));
-            for (final var p : people) {
-                logPerson(p, "child");
-            }
-//            logRelFacts(id);
-            logAllLinkedChildrenOf("    ", 7, id);
-            LOG.info("----");
+            logRelationship(msg, id);
         }
+    }
+
+    private void logRelationship(final String msg, final long id) throws SQLException {
+        LOG.warn("{}: ID={}", msg, id);
+
+        SortedSet<Long> people;
+        people = selectIds("SELECT person1id AS id FROM relationship WHERE id = ?", Optional.of(id));
+        for (final var p : people) {
+            logPerson("    ", p, "parent");
+        }
+        people = selectIds("SELECT person2id AS id FROM relationship WHERE id = ?", Optional.of(id));
+        for (final var p : people) {
+            logPerson("    ", p, "parent");
+        }
+        people = selectIds("SELECT personid AS id FROM childrelationship WHERE relationshipid = ?", Optional.of(id));
+        for (final var p : people) {
+            logPerson("    ", p, "child");
+        }
+        logAllLinkedChildrenOf("    ", FtmSchema.linkTableIDof("Relationship"), id);
+        LOG.info("----");
     }
 
     private void logAllLinkedChildrenOf(final String indent, final long tableParent, final long idParent) throws SQLException {
@@ -678,192 +695,71 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
                 while (rs.next()) {
                     final var sTableChild = getStringFrom("nameTable", rs);
                     final var idChild = getLongFrom("id", rs);
-                    if (sTableChild.equals("Fact")) {
-                        idFacts.add(idChild);
-                    } else if (sTableChild.equals("SourceLink")) {
-                        idSourceLinks.add(idChild);
-                    } else if (sTableChild.equals("WebLink")) {
-                        idWebLinks.add(idChild);
-                    } else if (sTableChild.equals("Task")) {
-                        idTasks.add(idChild);
-                    } else if (sTableChild.equals("TagLink")) {
-                        idTagLinks.add(idChild);
-                    } else if (sTableChild.equals("Note")) {
-                        idNotes.add(idChild);
-                    } else if (sTableChild.equals("MediaLink")) {
-                        idMediaLinks.add(idChild);
-                    } else {
-                        // can't happen
+                    switch (sTableChild) {
+                        case "Fact" -> idFacts.add(idChild);
+                        case "SourceLink" -> idSourceLinks.add(idChild);
+                        case "WebLink" -> idWebLinks.add(idChild);
+                        case "Task" -> idTasks.add(idChild);
+                        case "TagLink" -> idTagLinks.add(idChild);
+                        case "Note" -> idNotes.add(idChild);
+                        case "MediaLink" -> idMediaLinks.add(idChild);
+                        default -> { } // can't happen
                     }
                 }
             }
         }
         for (final var id : idFacts) {
-            logFactDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 2, id);
+            logTableInfoByName(indent, "Fact", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("Fact"), id);
         }
         for (final var id : idSourceLinks) {
-            logSourceLinkDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 17, id);
+            logTableInfoByName(indent, "SourceLink", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("SourceLink"), id);
         }
         for (final var id : idWebLinks) {
-            logWebLinkDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 25, id);
+            logTableInfoByName(indent, "WebLink", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("WebLink"), id);
         }
         for (final var id : idTasks) {
-            logTaskDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 9, id);
+            logTableInfoByName(indent, "Task", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("Task"), id);
         }
         for (final var id : idTagLinks) {
-            logTagLinkDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 27, id);
+            logTableInfoByName(indent, "TagLink", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("TagLink"), id);
         }
         for (final var id : idNotes) {
-            logNoteDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 4, id);
+            logTableInfoByName(indent, "Note", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("Note"), id);
         }
         for (final var id : idMediaLinks) {
-            logMediaLinkDetails(indent, id);
-            logAllLinkedChildrenOf(indent+"    ", 14, id);
+            logTableInfoByName(indent, "MediaLink", id.intValue());
+            logAllLinkedChildrenOf(indent+"    ", FtmSchema.linkTableIDof("MediaLink"), id);
         }
     }
 
-    private void logSourceLinkDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "SourceLink";
-        logTableInfoByName(indent, nameTable, id.intValue());
-    }
-
-    private void logWebLinkDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "WebLink";
-        logTableInfoByName(indent, nameTable, id.intValue());
-    }
-
-    private void logTaskDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "Task";
-        logTableInfoByName(indent, nameTable, id.intValue());
-    }
-
-    private void logTagLinkDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "TagLink";
-        logTableInfoByName(indent, nameTable, id.intValue());
-    }
-
-    private void logNoteDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "Note";
-        logTableInfoByName(indent, nameTable, id.intValue());
-    }
-
-    private void logMediaLinkDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "MediaLink";
-        logTableInfoByName(indent, nameTable, id.intValue());
-    }
-
-    private void logFactDetails(final String indent, final Long id) throws SQLException {
-        final var nameTable = "Fact";
-        logTableInfoByName(indent, nameTable, id.intValue());
-//        final var sql = """
-//            SELECT
-//                f.id AS factid,
-//                '('||t.tag||') '||t.name AS type,
-//                f.text AS s,
-//                f.date AS date,
-//                p.name AS place
-//            FROM
-//                fact AS f LEFT OUTER JOIN
-//                facttype AS t ON (t.id = f.facttypeid) LEFT OUTER JOIN
-//                place AS p ON (p.id = f.placeid)
-//            WHERE
-//                f.id = ?
-//            """;
-//        try (final var q = this.db.prepareStatement(sql)) {
-//            q.setLong(1, idFact);
-//            try (final var rs = q.executeQuery()) {
-//                while (rs.next()) {
-//                    final var idFactRead = getLongFrom("factid", rs);
-//                    final var date = getDateFrom("date", rs);
-//                    final var s = getStringFrom("s", rs);
-//                    final var type = getStringFrom("type", rs);
-//                    final var place = getPlaceFrom("place", rs);
-//                    LOG.info("{}table=Fact, id={}, type=\"{}\", text=\"{}\", date=\"{}\", place=\"{}\"",
-//                        indent, idFactRead, type, s, date, place);
-//                }
-//            }
-//        }
-    }
 
 
-
-
-    private int getIntFrom(final String col, final ResultSet rs) throws SQLException {
-        final var s = getStringFrom(col, rs);
-        if (s.isBlank()) {
-            return -1;
-        }
-        try {
-            return Integer.parseInt(s, 10);
-        } catch (final Exception ignore) {
-            return -1;
-        }
-    }
-
-    private Long getLongFrom(final String col, final ResultSet rs) throws SQLException {
-        final var s = getStringFrom(col, rs);
-        return Long.parseLong(s, 10);
-    }
-
-    private String getPlaceFrom(final String col, final ResultSet rs) throws SQLException {
-        final var factplace = getStringFrom(col, rs);
-        if (factplace.isBlank()) {
-            return "";
-        }
-        return FtmPlace.fromFtmPlace(factplace).toString();
-    }
-
-    private String getDateFrom(final String col, ResultSet rs) throws SQLException {
-        final var factdate = getStringFrom(col, rs);
-        if (factdate.isBlank()) {
-            return "";
-        }
-        return FtmDate.fromFtmFactDate(factdate).toString();
-    }
-
-    private String getStringFrom(final String col, final ResultSet rs) throws SQLException {
-        final var s = rs.getString(col);
-        if (rs.wasNull()) {
-            return "";
-        }
-        if (s.isBlank()) {
-            return "";
-        }
-        return s.strip();
-    }
-
-    private void logPerson(final Long p, final String msg) throws SQLException {
-        final var s = selectOneString("SELECT fullname AS s FROM person WHERE id = ?", Optional.of(p));
-        LOG.info("    {}: ID={}, name=\"{}\"", msg, p, s);
-    }
-
-    // string column must be named as "s"
-    private String selectOneString(final String sql, final Optional<Long> optID) throws SQLException {
-        String ret = "";
-        try (final var q = this.db.prepareStatement(sql)) {
-            if (optID.isPresent()) {
-                q.setLong(1, optID.get());
-            }
+    private void logPerson(final String indent, final long id, final String msg) throws SQLException {
+        String sName = "";
+        try (final var q = this.db.prepareStatement("SELECT fullname FROM person WHERE id = ?")) {
+            q.setLong(1, id);
             try (final var rs = q.executeQuery()) {
                 while (rs.next()) {
-                    ret = getStringFrom("s", rs);
+                    sName = getStringFrom("fullname", rs);
                 }
             }
         }
-        return ret;
+        LOG.info("{}{}: ID={}, name=\"{}\"", indent, msg, id, sName);
     }
+
+
 
     /**
      * Selects a set of "id" column values (long), from rows returned by the given SQL SELECT.
      * @param sql "SELECT col AS id FROM tab WHERE id = ?"
      * @return sorted (possibly empty) set of IDs (never returns null, and no nulls will be in the set)
-     * @throws SQLException
+     * @throws SQLException db error
      */
     private SortedSet<Long> selectIds(final String sql, final Optional<Long> optID) throws SQLException {
         final var ret = new TreeSet<Long>();
@@ -887,7 +783,7 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
      * Selects a set of "id" column values (long), from rows returned by the given SQL SELECT.
      * @param sql "SELECT col AS id FROM tab"
      * @return sorted (possibly empty) set of IDs (never returns null, and no nulls will be in the set)
-     * @throws SQLException
+     * @throws SQLException db error
      */
     private SortedSet<Long> selectIds(final String sql) throws SQLException {
         return selectIds(sql, Optional.empty());
@@ -1048,7 +944,7 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
                     final var preferred = rs.getInt("Preferred") != 0;
                     final var text = requireNonNullElse(rs.getString("Text"), "");
                     final var syncVersion = rs.getInt("SyncVersion");
-                    final var optUuid = asUuid(text);
+                    final var optUuid = FtmUtil.asUuid(text);
 
                     final var msg = String.format("    %7d %4s %4s %c %-40s %c %5d", idFact, tag, abbreviation, preferred ? '*' : ' ', text, optUuid.isPresent() ? '*' : ' ', syncVersion);
                     LOG.debug(msg);
@@ -1137,7 +1033,7 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
             try (final var rs = q.executeQuery()) {
                 if (rs.next()) {
                     final var text = requireNonNullElse(rs.getString("Text"), "");
-                    final var uuidExisting = asUuid(text);
+                    final var uuidExisting = FtmUtil.asUuid(text);
                     final var isOK = uuidExisting.isPresent() && uuidExisting.get().equals(uuidOptimal);
                     if (isOK) {
                         LOG.debug("    existing Preferred _ID Fact is up-to-date; no action required.");
@@ -1322,13 +1218,4 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
         }
     }
 
-    private static Optional<UUID> asUuid(final String s) {
-        try {
-            return Optional.of(UUID.fromString(s));
-        }
-        catch (final Throwable e) {
-            LOG.trace("ignoring error while decoding as UUID: {}", s, e);
-            return Optional.empty();
-        }
-    }
 }
