@@ -837,6 +837,7 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
                     for (final var medialinkid : medialinkids) {
                         logTableInfoByName("        ", "MediaLink", medialinkid);
                     }
+                    logAllLinkedChildrenOf("        ", FtmSchema.linkTableIDof("MediaFile"), id);
                 }
             }
         }
