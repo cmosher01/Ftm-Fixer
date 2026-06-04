@@ -89,4 +89,12 @@ public class FtmSchema {
         /* 36 */ "DnaMatch",
         /* 37 */ "",
         /* 38 */ "MediaFileOriginal");
+
+    public static int linkTableIDof(final String nameParentTable) {
+        final var i = rLinkParentTablesByNumber.indexOf(nameParentTable);
+        if (nameParentTable.isBlank() || i < 0 || rLinkParentTablesByNumber.size() <= i) {
+            throw new IllegalStateException();
+        }
+        return i;
+    }
 }
