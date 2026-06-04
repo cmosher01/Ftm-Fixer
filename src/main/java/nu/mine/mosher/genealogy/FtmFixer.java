@@ -762,7 +762,7 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
     private final Map<String,Set<Long>> mapFileHashToMediaFileIds = new HashMap<>();
 
     private void logDuplicateMediaContents() throws SQLException {
-        final var sql = "SELECT id, filehash FROM mediafile ORDER BY filehash";
+        final var sql = "SELECT id, filehash FROM mediafile WHERE filehash IS NOT NULL AND LENGTH(filehash) > 0 ORDER BY filehash";
         String hashPrev = "";
         long idPrev = -1;
         try (final var q = this.db.prepareStatement(sql)) {
