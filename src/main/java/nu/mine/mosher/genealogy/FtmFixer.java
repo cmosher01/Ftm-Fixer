@@ -441,7 +441,7 @@ public class FtmFixer {
                             final var idSource = getLongFrom("sourceid", rs);
                             final var sPid = getStringFrom("pid", rs);
                             final var sTitle = getStringFrom("title", rs);
-                            final var sAuthor = getPlaceFrom("author", rs);
+                            final var sAuthor = getStringFrom("author", rs);
                             LOG.info("{}table=SourceLink, id={}, sourceid={} PID=\"{}\", title=\"{}\", author=\"{}\"",
                                     indent, idRead, idSource, sPid, sTitle, sAuthor);
                             logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
