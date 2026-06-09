@@ -8,16 +8,19 @@ import java.util.*;
 import java.util.regex.*;
 
 // Taken from Ftm-Web-View
+// with additions
 
 public class FtmPlace {
     private static final Logger LOG =  LoggerFactory.getLogger(FtmPlace.class);
 
     private final List<String> hierarchy;
     private final String description;
+    private final boolean resolved;
 
-    private FtmPlace(List<String> hierarchy, String description) {
+    private FtmPlace(final List<String> hierarchy, final String description, final boolean resolved) {
         this.hierarchy = hierarchy;
         this.description = description;
+        this.resolved = resolved;
     }
 
     @Override
@@ -27,16 +30,19 @@ public class FtmPlace {
 
     public static FtmPlace fromFtmPlace(final String s) {
         final FtmPlace place = new Builder(s).build();
-        LOG.debug("FtmPlace=\"{}\" --> \"{}\"", s, place);
+//        LOG.debug("FtmPlace=\"{}\" --> \"{}\"", s, place);
         return place;
+    }
+
+    public boolean isResolved() {
+        return this.resolved;
     }
 
     @Override
     public boolean equals(final Object object) {
-        if (!(object instanceof FtmPlace)) {
+        if (!(object instanceof FtmPlace that)) {
             return false;
         }
-        final FtmPlace that = (FtmPlace)object;
         return this.hierarchy.equals(that.hierarchy);
     }
 
@@ -59,6 +65,7 @@ public class FtmPlace {
     private static class Builder {
         private String description;
         private final List<String> hierarchy = new ArrayList<>(5);
+        private boolean resolved;
 
         public Builder(final String description) {
             if (Objects.isNull(description) || description.isBlank()) {
@@ -76,7 +83,7 @@ public class FtmPlace {
         }
 
         public FtmPlace build() {
-            return new FtmPlace(hierarchy, description);
+            return new FtmPlace(hierarchy, description, resolved);
         }
 
 
@@ -146,6 +153,7 @@ public class FtmPlace {
             {
                 final Matcher withSlash = FTM_PLACE_WITH_SLASH.matcher(description);
                 if (withSlash.matches()) {
+                    this.resolved = true;
                     final Matcher hier = FTM_PLACE_HIERARCHICAL.matcher(withSlash.group("name"));
                     if (hier.matches()) {
                         parseAndAddHierarchy(hier.group("p0"));
@@ -169,11 +177,11 @@ public class FtmPlace {
 
         private void parseAndAddHierarchy(final String csvParts) {
             Arrays.stream(csvParts.split(",")).
-                    map(String::trim).
-                    forEach(this::addHierarchy);
+                map(String::trim).
+                forEach(this::addHierarchy);
         }
 
-        private void addHierarchy(String part) {
+        private void addHierarchy(final String part) {
             if (!part.isBlank()) {
                 this.hierarchy.add(part);
             }

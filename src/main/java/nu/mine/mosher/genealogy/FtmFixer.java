@@ -11,7 +11,6 @@ import java.io.*;
 import java.nio.file.Paths;
 import java.sql.*;
 import java.util.*;
-import java.util.prefs.Preferences;
 
 import static java.util.Objects.requireNonNullElse;
 import static nu.mine.mosher.genealogy.FtmUtil.*;
@@ -123,13 +122,34 @@ public class FtmFixer {
 
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
+            // TODO check for xml longer than 256 characters
             ftmFixer.findAnomalousRelationships();
             final var setChildParentLinks = ftmFixer.getLinkCountsForChildTables();
             ftmFixer.findOrphanedLinkRows(setChildParentLinks);
             ftmFixer.logItemsNoChildRowsOrInvalidParentRows();
             ftmFixer.logDuplicateMediaContents();
+            // TODO log duplicate repositories and sources (MasterSource)
+            ftmFixer.logUnresolvedPlaces();
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
+        }
+    }
+
+    private void logUnresolvedPlaces() throws SQLException {
+        final var sql = "SELECT name FROM place ORDER BY name";
+        try (final var q = this.db.prepareStatement(sql)) {
+            try (final var rs = q.executeQuery()) {
+                while (rs.next()) {
+                    final var place = getPlaceFrom("name", rs);
+                    if (place.isEmpty()) {
+                        LOG.error("Error parsing place: {}", getStringFrom("name", rs));
+                    } else {
+                        if (!place.get().isResolved()) {
+                            LOG.warn("Unresolved Place: \"{}\"", place.get());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -474,7 +494,7 @@ public class FtmFixer {
                             final var type = getStringFrom("type", rs);
                             final var place = getPlaceFrom("place", rs);
                             LOG.info("{}table=Fact, id={}, type=\"{}\", text=\"{}\", date=\"{}\", place=\"{}\"",
-                                    indent, idRead, type, s, date, place);
+                                indent, idRead, type, s, date, place.get());
                             logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
                         }
                     }

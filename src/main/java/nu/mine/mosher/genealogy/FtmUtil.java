@@ -46,12 +46,12 @@ public class FtmUtil {
         }
     }
 
-    public static String getPlaceFrom(final String col, final ResultSet rs) throws SQLException {
+    public static Optional<FtmPlace> getPlaceFrom(final String col, final ResultSet rs) throws SQLException {
         final var factplace = getStringFrom(col, rs);
-        if (factplace.isBlank()) {
-            return "";
+        if (factplace.isBlank() || rs.wasNull()) {
+            return Optional.empty();
         }
-        return FtmPlace.fromFtmPlace(factplace).toString();
+        return Optional.of(FtmPlace.fromFtmPlace(factplace));
     }
 
     public static String getDateFrom(final String col, ResultSet rs) throws SQLException {
