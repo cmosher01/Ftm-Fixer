@@ -122,7 +122,7 @@ public class FtmFixer {
 
             ftmFixer.fixOptimalUuid();
             ftmFixer.verifyXml();
-            // TODO check for xml longer than 256 characters
+            ftmFixer.logCitationTextCharacteristics();
             ftmFixer.findAnomalousRelationships();
             final var setChildParentLinks = ftmFixer.getLinkCountsForChildTables();
             ftmFixer.findOrphanedLinkRows(setChildParentLinks);
@@ -493,8 +493,14 @@ public class FtmFixer {
                             final var s = getStringFrom("s", rs);
                             final var type = getStringFrom("type", rs);
                             final var place = getPlaceFrom("place", rs);
+                            final String sPlace;
+                            if (place.isPresent()) {
+                                sPlace = place.get().toString().strip();
+                            } else {
+                                sPlace = "";
+                            }
                             LOG.info("{}table=Fact, id={}, type=\"{}\", text=\"{}\", date=\"{}\", place=\"{}\"",
-                                indent, idRead, type, s, date, place.get());
+                                indent, idRead, type, s, date, sPlace);
                             logAllLinkedChildrenOf(indent + "    ", FtmSchema.linkTableIDof(sTableName), idRead);
                         }
                     }
@@ -908,42 +914,155 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
 
 
 
+    private void logCitationTextCharacteristics() {
+
+    }
+
+    /*
+        Source.PageNumber column is the Citation Detail field
+        Source.Comment    column is the Citation text (transcript) field
+
+        log counts of Source rows with:
+            xml (valid or not) detail text
+                those with transcript
+                    those too long
+            html (valid or not) detail text
+            other (non-blank) detail text
+
+            total with detail text (any format) >256 characters
+
+            xml (valid or not) transcript text
+            html (valid of not) transcript text
+            other (non-blank) transcript text
+     */
     private void verifyXml() throws SQLException {
+        int cdX = 0;
+        int cdXT = 0;
+        int cdXtoobigT = 0;
+        int cdH = 0;
+        int cdO = 0;
+        int cdXtoobig = 0;
+        int ctX = 0;
+        int ctH = 0;
+        int ctO = 0;
+
         final var sql = """
             SELECT
-                Source.PageNumber, MasterSource.Title, Person.FullName
+                s.id, s.pagenumber AS detail, s.comment AS transcript, m.title
             FROM
-                Fact INNER JOIN
-                SourceLink ON (SourceLink.LinkID = Fact.ID AND SourceLink.LinkTableID = 2) INNER JOIN
-                Source ON (Source.ID = SourceLink.SourceID) INNER JOIN
-                MasterSource ON (MasterSource.ID = Source.MasterSourceID) INNER JOIN
-                Person ON (Person.ID = Fact.LinkID AND Fact.LinkTableID = 5)
+                source AS s LEFT OUTER JOIN
+                mastersource AS m ON (m.id = s.mastersourceid)
             WHERE
-                PageNumber IS NOT NULL AND
-                SUBSTR(PageNumber,1,1) = '<'
-            GROUP BY
-                Source.ID
+                s.pagenumber IS NOT NULL
             """;
         try (final var q = this.db.prepareStatement(sql); final var rs = q.executeQuery()) {
             while (rs.next()) {
-                final var citation = rs.getString("PageNumber");
-                final var title = requireNonNullElse(rs.getString("Title"), "");
-                final var person = requireNonNullElse(rs.getString("FullName"), "");
-                if (!validCitation(citation)) {
-                    LOG.warn("    INVALID XML found for citation starting with '<':");
-                    LOG.warn("    TITLE: {}", title);
-                    LOG.warn("    PERSON: {}", person);
+                final var id = getLongFrom("id", rs);
+
+                final var detail = getStringFrom("detail", rs);
+                final var hasDetail = !detail.isBlank();
+                final var isDetailXml = isXml(detail);
+                final boolean isDetailValidXml;
+                if (isDetailXml) {
+                    isDetailValidXml = isValidXml(detail);
+                } else {
+                    isDetailValidXml = false;
+                }
+                final var isDetailHtml = isHtml(detail);
+
+                final var transcript = getStringFrom("transcript", rs);
+                final var hasTranscript = !transcript.isBlank();
+                final var isTranscriptXml = isXml(transcript);
+                final boolean isTranscriptValidXml;
+                if (isTranscriptXml) {
+                    isTranscriptValidXml = isValidXml(transcript);
+                } else {
+                    isTranscriptValidXml = false;
+                }
+                final var isTranscriptHtml = isHtml(transcript);
+
+                final var title = getStringFrom("title", rs);
+
+                // first of all, we want to log INVALID XML, because it prevents the entire web page from loading
+                if ((isDetailXml && !isDetailValidXml) || (isTranscriptXml && !isTranscriptValidXml)) {
+                    LOG.warn("Invalid XML in Source ID={}, title=\"{}\"", id, title);
+                }
+
+                // now, count all the things
+                if (hasDetail) {
+                    if (isDetailXml) {
+                        cdX++;
+                        if (hasTranscript) {
+                            cdXT++;
+                            if (256 < detail.length()) {
+                                cdXtoobigT++;
+                            }
+                        }
+                    } else if (isDetailHtml) {
+                        cdH++;
+                    } else {
+                        cdO++;
+                    }
+                    if (256 < detail.length()) {
+                        cdXtoobig++;
+                    }
+                }
+                if (hasTranscript) {
+                    if (isTranscriptXml) {
+                        ctX++;
+                    } else if (isTranscriptHtml) {
+                        ctH++;
+                    } else {
+                        ctO++;
+                    }
                 }
             }
         }
+
+        LOG.info(String.format("Citation counts (Source rows with non-null pagenumber column): ----------------------------------"));
+        LOG.info(String.format("w/ detail: xml=%5d, html=%5d, other=%5d, xml+xscript=%5d, 256<len=%5d, 256+script=%5d", cdX, cdH, cdO, cdXT, cdXtoobig, cdXtoobigT));
+        LOG.info(String.format("w/xscript: xml=%5d, html=%5d, other=%5d", ctX, ctH, ctO));
+        LOG.info(              "-------------------------------------------------------------------------------------------------");
     }
 
-    private boolean validCitation(final String citation) {
+    private static boolean isXml(final String s) {
+        if (s.isBlank()) {
+            return false;
+        }
+        return
+            s.startsWith("<?xml") ||
+            s.startsWith("<bibl") ||
+            s.contains("<bibl>") ||
+            s.contains("<tei");
+    }
+
+
+    private static boolean isHtml(final String s) {
+        if (s.isBlank() || isXml(s)) {
+            return false;
+        }
+        final String low = s.toLowerCase();
+        return
+                low.startsWith("<html") ||
+                low.startsWith("<!doctype html") ||
+                low.contains("<table") ||
+                low.contains("<img") ||
+                low.contains("<p>") ||
+                low.contains("<br") ||
+                low.contains("<div") ||
+                low.contains("<span") ||
+                low.contains("<i>") ||
+                low.contains("<u>") ||
+                low.contains("<hr") ||
+                low.contains(" href=");
+    }
+
+    private boolean isValidXml(final String s) {
         boolean valid = false;
         try {
             final var factory = DocumentBuilderFactory.newInstance();
             final var builder = factory.newDocumentBuilder();
-            final var dom = builder.parse(new InputSource(new BufferedReader(new StringReader(citation))));
+            final var dom = builder.parse(new InputSource(new BufferedReader(new StringReader(s))));
             final var rBibl = dom.getElementsByTagName("bibl");
             for (int i = 0; i < rBibl.getLength(); ++i) {
                 final var bibl = rBibl.item(i);
