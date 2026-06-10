@@ -987,6 +987,10 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
                 if ((isDetailXml && !isDetailValidXml) || (isTranscriptXml && !isTranscriptValidXml)) {
                     LOG.warn("Invalid XML in Source ID={}, title=\"{}\"", id, title);
                 }
+                // check for possible truncation of details
+                if (253 <= detail.length() && detail.length() <= 259) {
+                    LOG.warn(String.format("Possible citation detail truncation: ID=%5d, len=%3d: \"...%32s\"", id, detail.length(), detail.substring(detail.length()-32)));
+                }
 
                 // now, count all the things
                 if (hasDetail) {
