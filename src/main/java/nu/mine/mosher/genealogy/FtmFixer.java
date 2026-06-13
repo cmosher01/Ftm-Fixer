@@ -987,10 +987,8 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
                 if ((isDetailXml && !isDetailValidXml) || (isTranscriptXml && !isTranscriptValidXml)) {
                     LOG.warn("Invalid XML in Source ID={}, title=\"{}\"", id, title);
                 }
-                // check for possible truncation of details
-                if (253 <= detail.length() && detail.length() <= 259) {
-                    LOG.warn(String.format("Possible citation detail truncation: ID=%5d, len=%3d: \"...%32s\"", id, detail.length(), detail.substring(detail.length()-32)));
-                }
+
+                logTruncationWarningStrings(256, detail, id);
 
                 // now, count all the things
                 if (hasDetail) {
@@ -1027,6 +1025,31 @@ SELECT 'Fact'      , id FROM Fact       t WHERE t.linktableid = ? AND t.linkid =
         LOG.info(String.format("w/ detail: xml=%5d, html=%5d, other=%5d, xml+xscript=%5d, 256<len=%5d, 256+script=%5d", cdX, cdH, cdO, cdXT, cdXtoobig, cdXtoobigT));
         LOG.info(String.format("w/xscript: xml=%5d, html=%5d, other=%5d", ctX, ctH, ctO));
         LOG.info(              "-------------------------------------------------------------------------------------------------");
+    }
+
+/*
+len . substr(b,e)  sp | substr(b,e)  offset=256-len
+--- - ------------ -- - -----------  --------------
+253 3 len-32,len-0  3 | len-0,len-0  3
+254 4 len-32,len-0  2 | len-0,len-0  2
+255 5 len-32,len-0  1 | len-0,len-0  1
+256 6 len-32,len-0  0 | len-0,len-0  0
+257 7 len-32,len-1  0 | len-1,len-0 -1
+258 8 len-32,len-2  0 | len-2,len-0 -2
+259 9 len-32,len-3  0 | len-3,len-0 -3
+*/
+    private static void logTruncationWarningStrings(final int around, final String detail, final long idCitation) {
+        // check for possible truncation of details string
+        // look for strings with length plus or minus 3 around the given length
+        final int len = detail.length();
+        if (-3+around <= len && len <= around+3) {
+            final int offset = around-len; // [-3,+3]
+            final String dt = ".".repeat(3+(3-offset));
+            final String s0 = detail.substring(len-32, len+Math.min(offset, 0));
+            final String sp = " ".repeat(Math.max(0, offset));
+            final String s1 = detail.substring(len+Math.min(offset, 0));
+            LOG.warn(String.format("Possible truncated citation: ID=%5d, len=%3d: %s%s%s|%s", idCitation, len, dt, s0, sp, s1));
+        }
     }
 
     private static boolean isXml(final String s) {
