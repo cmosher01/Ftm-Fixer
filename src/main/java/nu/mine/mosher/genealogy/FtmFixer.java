@@ -130,6 +130,8 @@ public class FtmFixer {
             ftmFixer.logDuplicateMediaContents();
             // TODO log duplicate repositories and sources (MasterSource)
             ftmFixer.logUnresolvedPlaces();
+            // TODO log "nearby" places?
+            // TODO show places without coordinates
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }

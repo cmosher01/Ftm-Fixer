@@ -1,15 +1,20 @@
 package nu.mine.mosher.genealogy;
 
 
-
 import org.slf4j.*;
+import org.w3c.dom.Element;
 
 import java.util.*;
 import java.util.regex.*;
+import java.util.stream.Collectors;
 
-// Taken from Ftm-Web-View
-// with additions
+//import static nu.mine.mosher.genealogy.StringUtils.safe;
+//import static nu.mine.mosher.genealogy.XmlUtils.e;
 
+
+// from ftm-web-view (with some things commented out that we don't need here)
+
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class FtmPlace {
     private static final Logger LOG =  LoggerFactory.getLogger(FtmPlace.class);
 
@@ -17,21 +22,82 @@ public class FtmPlace {
     private final String description;
     private final boolean resolved;
 
-    private FtmPlace(final List<String> hierarchy, final String description, final boolean resolved) {
+    private final Optional<GeoCoords> coords;
+    private final boolean neg; // TODO what is this flag for?
+    private final int codeStandard; // TODO what place-coding standard is this?
+
+    private String abbreviatedOverride;
+    private boolean ditto;
+
+    private FtmPlace(final List<String> hierarchy, final String description, final boolean resolved, final Optional<GeoCoords> coords, final boolean neg, final int codeStandard) {
         this.hierarchy = hierarchy;
         this.description = description;
+        this.coords = coords;
+        this.neg = neg;
+        this.codeStandard = codeStandard;
+        this.abbreviatedOverride = "";
         this.resolved = resolved;
     }
 
     @Override
     public String toString() {
+        return "FtmPlace{" +
+            "hierarchy=[" + dumpHierarchy() + ']' +
+            ", description=\"" + description + '\"' +
+            ", codeStandard=" + codeStandard +
+            ", coords=" + coords +
+            '}';
+    }
+
+    private String dumpHierarchy() {
+        return
+            this.
+            hierarchy.
+            stream().
+            map(p -> "\""+p+"\"").
+            collect(Collectors.joining(","));
+    }
+
+    public List<String> getHierarchy() {
+        return new ArrayList<>(this.hierarchy);
+    }
+
+    public String description() {
         return this.description;
     }
 
     public static FtmPlace fromFtmPlace(final String s) {
         final FtmPlace place = new Builder(s).build();
-//        LOG.debug("FtmPlace=\"{}\" --> \"{}\"", s, place);
+        LOG.debug("FtmPlace=\"{}\" --> \"{}\"", s, place);
         return place;
+    }
+
+    public static FtmPlace empty() {
+        return new FtmPlace(new ArrayList<>(), "", false, Optional.empty(), false, 0);
+    }
+
+//    public boolean isBlank() {
+//        return !this.ditto && /*this.sDisplay.isBlank() &&*/ safe(this.description).isBlank();
+//    }
+//
+//    public void appendTo(final Element parent) {
+//        if (this.ditto) {
+//            parent.setTextContent("\u00A0\u3003");
+//        } else {
+//            final Element name = e(parent, "span");
+//            name.setTextContent(this.abbreviatedOverride.isBlank() ? this.description : this.abbreviatedOverride);
+//
+//            if (this.coords.isPresent()) {
+//                final Element sup = e(parent, "sup");
+//                final Element google = e(sup, "a");
+//                google.setAttribute("href", this.coords.get().urlGoogleMaps().toExternalForm());
+//                google.setTextContent(new String(Character.toChars(0x1F30D)));
+//            }
+//        }
+//    }
+
+    public void setAbbreviatedOverride(final List<String> parts) {
+        this.abbreviatedOverride = String.join(", ", parts);
     }
 
     public boolean isResolved() {
@@ -51,6 +117,10 @@ public class FtmPlace {
         return Objects.hash(this.hierarchy);
     }
 
+    public void setDitto() {
+        this.ditto = true;
+    }
+
 
 
 
@@ -64,6 +134,9 @@ public class FtmPlace {
 
     private static class Builder {
         private String description;
+        private Optional<GeoCoords> coords = Optional.empty();
+        private boolean neg;
+        private int codeStandard;
         private final List<String> hierarchy = new ArrayList<>(5);
         private boolean resolved;
 
@@ -83,7 +156,7 @@ public class FtmPlace {
         }
 
         public FtmPlace build() {
-            return new FtmPlace(hierarchy, description, resolved);
+            return new FtmPlace(hierarchy, description, resolved, coords, neg, codeStandard);
         }
 
 
@@ -123,7 +196,7 @@ public class FtmPlace {
 
         /*
                 /Hamilton, Madison, New York, USA|/0.7474722/-1.318502
-                /FtmPlace, Name w/some slash/es | and, vertical | bars|//
+                /Place, Name w/some slash/es | and, vertical | bars|//
          */
         private static final Pattern FTM_PLACE_WITH_VERTICALBAR = Pattern.compile("^/(?<name>.*)\\|(?<code>[^/|]*?)/(?<lat>[^/|]*?)/(?<lon>[^/|]*?)$");
 
@@ -143,6 +216,9 @@ public class FtmPlace {
             {
                 final Matcher withBar = FTM_PLACE_WITH_VERTICALBAR.matcher(description);
                 if (withBar.matches()) {
+                    setCoords(withBar.group("lat"), withBar.group("lon"));
+                    setCode(withBar.group("code"));
+
                     parseAndAddHierarchy(withBar.group("name"));
 
                     buildDescription();
@@ -153,6 +229,9 @@ public class FtmPlace {
             {
                 final Matcher withSlash = FTM_PLACE_WITH_SLASH.matcher(description);
                 if (withSlash.matches()) {
+                    setCoords(withSlash.group("lat"), withSlash.group("lon"));
+                    setCode(withSlash.group("code"));
+
                     this.resolved = true;
                     final Matcher hier = FTM_PLACE_HIERARCHICAL.matcher(withSlash.group("name"));
                     if (hier.matches()) {
@@ -166,6 +245,7 @@ public class FtmPlace {
                     }
 
                     buildDescription();
+                    return;
                 }
             }
             //-------------------------------------------------------
@@ -184,6 +264,32 @@ public class FtmPlace {
         private void addHierarchy(final String part) {
             if (!part.isBlank()) {
                 this.hierarchy.add(part);
+            }
+        }
+
+        private void setCoords(final String lat, final String lon) {
+            this.coords = GeoCoords.parse(lat, lon);
+        }
+
+        private void setCode(final String code) {
+            this.codeStandard = parseCode(code);
+
+            this.neg = false;
+            if (this.codeStandard < 0) {
+                this.neg = true;
+                this.codeStandard = -this.codeStandard;
+            }
+        }
+
+        private static int parseCode(final String s) {
+            if (s.isBlank()) {
+                return 0;
+            }
+            try {
+                return Integer.parseInt(s);
+            } catch (final Throwable e) {
+                LOG.warn("Unknown format for FTM place code: {}", s, e);
+                return 0;
             }
         }
     }
