@@ -104,6 +104,10 @@ public class FtmPlace {
         return this.resolved;
     }
 
+    public Optional<GeoCoords> getCoords() {
+        return this.coords;
+    }
+
     @Override
     public boolean equals(final Object object) {
         if (!(object instanceof FtmPlace that)) {

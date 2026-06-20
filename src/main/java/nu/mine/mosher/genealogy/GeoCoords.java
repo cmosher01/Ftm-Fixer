@@ -68,7 +68,7 @@ public record GeoCoords(
     private static Optional<Double> degreesFromRadians(final Optional<Double> radians) {
         if (radians.isPresent()) {
             final double r = radians.get();
-            final double d = (180.0d * r) / Math.PI;
+            final double d = Math.toDegrees(r);
             return Optional.of(d);
         } else {
             return Optional.empty();

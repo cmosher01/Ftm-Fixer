@@ -131,7 +131,6 @@ public class FtmFixer {
             // TODO log duplicate repositories and sources (MasterSource)
             ftmFixer.logUnresolvedPlaces();
             // TODO log "nearby" places?
-            // TODO show places without coordinates
         } catch (final Exception e) {
             LOG.error("Error processing {}", arg, e);
         }
@@ -148,6 +147,17 @@ public class FtmFixer {
                     } else {
                         if (!place.get().isResolved()) {
                             LOG.warn("Unresolved Place: \"{}\"", place.get());
+                            if (place.get().getCoords().isPresent()) {
+                                final var coords = place.get().getCoords().get();
+                                final var lat = coords.degreesLatitude();
+                                final var lon = coords.degreesLongitude();
+                                final var s = String.format("(%.6f,%.6f)", lat, lon);
+                                LOG.warn("    unresolved Place has lat/lon: \"{}\"", s);
+                            }
+                        } else {
+                            if (place.get().getCoords().isEmpty()) {
+                                LOG.warn("No lat/lon on resolved Place: \"{}\"", place.get());
+                            }
                         }
                     }
                 }
